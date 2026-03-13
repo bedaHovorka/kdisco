@@ -33,3 +33,6 @@ nbdist/
 *.tmp
 *.swp
 *~
+
+# Git worktrees
+.worktrees/
