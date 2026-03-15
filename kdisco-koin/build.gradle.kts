@@ -5,8 +5,8 @@ plugins {
 
 kotlin {
     jvm {
-        compilations.all {
-            kotlinOptions.jvmTarget = "11"
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
         // jDisco uses global static state (SQS, processSet, Coroutine.main).
         // A failed test that leaves a simulation running can corrupt jDisco for
@@ -21,7 +21,7 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
-                api(project(":kdisco-core-api"))
+                api(project(":kdisco-core"))
                 implementation("io.insert-koin:koin-core:${project.property("koin.version")}")
             }
         }

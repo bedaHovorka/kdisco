@@ -1,11 +1,11 @@
 plugins {
-    kotlin("multiplatform") version "1.9.22" apply false
-    kotlin("jvm") version "1.9.22" apply false
+    kotlin("multiplatform") version "2.1.10" apply false
+    kotlin("jvm") version "2.1.10" apply false
 }
 
 allprojects {
     group = "cz.hovorka.kdisco"
-    version = "0.2.0-SNAPSHOT"
+    version = "0.3.0-SNAPSHOT"
 
     repositories {
         mavenCentral()
@@ -23,9 +23,9 @@ allprojects {
 
 subprojects {
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions {
-            jvmTarget = "11"
-            freeCompilerArgs = listOf("-Xjsr305=strict")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+            freeCompilerArgs.add("-Xjsr305=strict")
         }
     }
 

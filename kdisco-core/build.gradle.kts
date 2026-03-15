@@ -5,8 +5,8 @@ plugins {
 
 kotlin {
     jvm {
-        compilations.all {
-            kotlinOptions.jvmTarget = "11"
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
         // jDisco uses global static state (SQS, processSet, Coroutine.main).
         // A failed test that leaves a simulation running can corrupt jDisco for
@@ -58,5 +58,8 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") as String?
             }
         }
+    }
+    publications.withType<MavenPublication> {
+        artifactId = artifactId.replace("kdisco-core", "kdisco-core-api")
     }
 }
