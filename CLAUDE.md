@@ -193,3 +193,15 @@ koinSimulationSweep(module, params = listOf(1.0, 2.0, 5.0)) { serviceTime ->
 }
 // Each run gets isolated Koin context with fresh singletons
 ```
+
+## Testing Conventions
+
+- **Assertion library**: Use assertK (`assertThat(...).isEqualTo(...)`) in all test files.
+  `kotlin.test` is kept only for the `@Test` annotation. Never use `kotlin.test.assert*`
+  functions — use assertK equivalents instead.
+  - `assertEquals(exp, act)` → `assertThat(act).isEqualTo(exp)`
+  - `assertTrue(cond)` → `assertThat(cond).isTrue()`
+  - `assertTrue(x >= a && x <= b)` → `assertThat(x).isBetween(a, b)`
+  - `assertFalse(cond)` → `assertThat(cond).isFalse()`
+  - `assertNull(val)` → `assertThat(val).isNull()`
+  - `assertSame(exp, act)` → `assertThat(act).isSameInstanceAs(exp)`

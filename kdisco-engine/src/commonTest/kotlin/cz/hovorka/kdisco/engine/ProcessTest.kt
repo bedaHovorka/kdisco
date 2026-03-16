@@ -1,9 +1,9 @@
 package cz.hovorka.kdisco.engine
 
+import assertk.assertThat
+import assertk.assertions.*
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class ProcessTest {
 
@@ -18,7 +18,7 @@ class ProcessTest {
         runSimulation(endTime = 10.0) {
             Process.activate(p)
         }
-        assertTrue(executed)
+        assertThat(executed).isTrue()
     }
 
     @Test
@@ -36,7 +36,7 @@ class ProcessTest {
         runSimulation(endTime = 100.0) {
             Process.activate(p)
         }
-        assertEquals(listOf(0.0, 5.0, 8.0), times)
+        assertThat(times).isEqualTo(listOf(0.0, 5.0, 8.0))
     }
 
     @Test
@@ -49,7 +49,7 @@ class ProcessTest {
         runSimulation(endTime = 10.0) {
             Process.activate(p)
         }
-        assertTrue(p.terminated())
+        assertThat(p.terminated()).isTrue()
     }
 
     @Test
@@ -68,7 +68,7 @@ class ProcessTest {
             Process.activate(Logger("A", 10.0))
             Process.activate(Logger("B", 5.0), delay = 2.0)
         }
-        assertEquals(listOf("A" to 0.0, "B" to 2.0, "B" to 7.0, "A" to 10.0), log)
+        assertThat(log).isEqualTo(listOf("A" to 0.0, "B" to 2.0, "B" to 7.0, "A" to 10.0))
     }
 
     @Test
@@ -95,7 +95,7 @@ class ProcessTest {
             Process.activate(waiter)
             Process.activate(reactivator)
         }
-        assertEquals(listOf("passivating" to 0.0, "reactivating" to 5.0, "resumed" to 5.0), log)
+        assertThat(log).isEqualTo(listOf("passivating" to 0.0, "reactivating" to 5.0, "resumed" to 5.0))
     }
 
     @Test
@@ -111,8 +111,8 @@ class ProcessTest {
         runSimulation(endTime = 10.0) {
             Process.activate(p)
         }
-        assertEquals(listOf("before"), log)
-        assertTrue(p.terminated())
+        assertThat(log).isEqualTo(listOf("before"))
+        assertThat(p.terminated()).isTrue()
     }
 
     @Test
@@ -126,7 +126,7 @@ class ProcessTest {
         runSimulation(endTime = 100.0) {
             Process.activate(p, delay = 7.0)
         }
-        assertEquals(listOf(7.0), log)
+        assertThat(log).isEqualTo(listOf(7.0))
     }
 
     @Test
@@ -155,8 +155,8 @@ class ProcessTest {
             Process.activate(customer)
             Process.activate(server)
         }
-        assertEquals(listOf("joining" to 0.0, "served" to 3.0), log)
-        assertEquals(0, queue.cardinal())
+        assertThat(log).isEqualTo(listOf("joining" to 0.0, "served" to 3.0))
+        assertThat(queue.cardinal()).isEqualTo(0)
     }
 
     @Test
@@ -173,7 +173,7 @@ class ProcessTest {
         runSimulation(endTime = 5.0) {
             Process.activate(p)
         }
-        assertTrue(lastTime <= 5.0)
+        assertThat(lastTime).isLessThanOrEqualTo(5.0)
     }
 
     @Test
@@ -194,7 +194,7 @@ class ProcessTest {
                 }
             })
         }
-        assertEquals(3.0, lastTime)
+        assertThat(lastTime).isEqualTo(3.0)
     }
 
     @Test
@@ -212,7 +212,7 @@ class ProcessTest {
         runSimulation(endTime = 10.0) {
             Process.activate(p)
         }
-        assertTrue(caught)
+        assertThat(caught).isTrue()
     }
 
     @Test
@@ -229,6 +229,52 @@ class ProcessTest {
                 override suspend fun actions() { log.add("C") }
             })
         }
-        assertEquals(listOf("A", "B", "C"), log)
+        assertThat(log).isEqualTo(listOf("A", "B", "C"))
+    }
+
+    @Test
+    fun reactivateTerminatedProcessIsNoOp() = runTest {
+        var actionsRunCount = 0
+        val sim = Simulation.create {
+            val p = object : Process() {
+                override suspend fun actions() {
+                    actionsRunCount++
+                    terminate()
+                }
+            }
+            Process.activate(p)
+            val reactivator = object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    Process.reactivate(p)   // should be no-op: p is terminated
+                }
+            }
+            Process.activate(reactivator)
+        }
+        sim.run(10.0)
+        assertThat(actionsRunCount).isEqualTo(1)   // actions() must not run twice
+    }
+
+    @Test
+    fun reactivateAlreadyScheduledProcessNoDuplicate() = runTest {
+        var resumeCount = 0
+        val sim = Simulation.create {
+            val p = object : Process() {
+                override suspend fun actions() {
+                    hold(5.0)
+                    resumeCount++
+                }
+            }
+            Process.activate(p)
+            val reactivator = object : Process() {
+                override suspend fun actions() {
+                    // p is scheduled to resume at t=5; reactivate it at t=0
+                    Process.reactivate(p)
+                }
+            }
+            Process.activate(reactivator)
+        }
+        sim.run(10.0)
+        assertThat(resumeCount).isEqualTo(1)       // resumed exactly once
     }
 }

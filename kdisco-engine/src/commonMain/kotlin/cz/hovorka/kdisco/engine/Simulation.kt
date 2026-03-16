@@ -17,6 +17,47 @@ class Simulation internal constructor() {
     internal val context = SimulationContext()
     private var _hasRun = false
 
+    // --- Continuous integration parameters ---
+
+    /** Minimum integration step size. Must be > 0 and <= [dtMax]. */
+    var dtMin: Double
+        get() = context.dtMin
+        set(value) {
+            require(value > 0.0) { "dtMin must be positive, got $value" }
+            require(value <= context.dtMax) { "dtMin ($value) must be <= dtMax (${context.dtMax})" }
+            context.dtMin = value
+        }
+
+    /** Maximum integration step size. Must be >= [dtMin]. */
+    var dtMax: Double
+        get() = context.dtMax
+        set(value) {
+            require(value > 0.0) { "dtMax must be positive, got $value" }
+            require(value >= context.dtMin) { "dtMax ($value) must be >= dtMin (${context.dtMin})" }
+            context.dtMax = value
+        }
+
+    /** Maximum absolute integration error per step (used by RKF45). Must be non-negative. */
+    var maxAbsError: Double
+        get() = context.maxAbsError
+        set(value) {
+            require(value >= 0.0) { "maxAbsError must be non-negative, got $value" }
+            context.maxAbsError = value
+        }
+
+    /** Maximum relative integration error per step (used by RKF45). Must be non-negative. */
+    var maxRelError: Double
+        get() = context.maxRelError
+        set(value) {
+            require(value >= 0.0) { "maxRelError must be non-negative, got $value" }
+            context.maxRelError = value
+        }
+
+    /** The numerical integrator used for continuous variable integration. Defaults to [RKF45Integrator]. */
+    internal var integrator: Integrator
+        get() = context.monitor.integrator
+        set(value) { context.monitor.integrator = value }
+
     /**
      * Executes the simulation until [endTime] or [stop] is called.
      *
@@ -26,6 +67,9 @@ class Simulation internal constructor() {
      *
      * [Dispatchers.Unconfined] ensures coroutines start and resume synchronously on
      * the calling thread, giving deterministic single-threaded execution.
+     *
+     * When active [Continuous] processes are present, the [ContinuousMonitor] integrates
+     * all active [Variable]s up to the time of the next discrete event before processing it.
      */
     suspend fun run(endTime: Double) {
         check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
@@ -56,11 +100,34 @@ class Simulation internal constructor() {
             // (hold/passivate) or terminates, then control returns here for the next event.
             while (!context.stopRequested) {
                 currentCoroutineContext().ensureActive()
-                val next = context.eventQueue.removeFirst() ?: break
-                if (next.time > endTime) break
 
-                context.currentTime = next.time
-                val process = next.process
+                // Peek at the next event without removing it yet.
+                val next = context.eventQueue.peek()
+
+                // Determine integration boundary: next event or endTime if queue is empty.
+                // When the queue is empty but continuous processes are still active, we must
+                // integrate all the way to endTime rather than exiting the loop immediately.
+                val integrateTo = if (next != null) minOf(next.time, endTime) else endTime
+
+                // Integrate continuous processes up to the next event boundary (or endTime).
+                if (context.firstCont != null) {
+                    context.monitor.integrateUntil(integrateTo)
+                }
+
+                // If no more discrete events: check if integrateUntil added events via
+                // checkWaitNotices (e.g. a waitUntil condition became true). If so,
+                // loop back to process them; otherwise we are truly done.
+                if (next == null) {
+                    if (!context.eventQueue.isEmpty()) continue
+                    break
+                }
+
+                // Now pop and process the event.
+                val event = context.eventQueue.removeFirst() ?: break
+                if (event.time > endTime) break
+
+                context.currentTime = event.time
+                val process = event.process
                 context.currentProcess = process
 
                 val cont = process.continuation
@@ -69,20 +136,26 @@ class Simulation internal constructor() {
                     process.continuation = null
                     cont.resumeWith(Result.success(Unit))
                 } else {
-                    // First activation — launch new coroutine for process.actions()
-                    simScope.launch {
-                        try {
-                            process.actions()
-                        } catch (_: ProcessTerminatedException) {
-                            // Process called terminate() — expected, not an error
-                        } finally {
-                            process._terminated = true
+                    // First activation — launch new coroutine for process.actions().
+                    // Guard against re-launching if the process was terminated and then
+                    // erroneously rescheduled (e.g. by a reactivate() call that predates
+                    // this guard being in place).
+                    if (!process._terminated) {
+                        simScope.launch {
+                            try {
+                                process.actions()
+                            } catch (_: ProcessTerminatedException) {
+                                // Process called terminate() — expected, not an error
+                            } finally {
+                                process._terminated = true
+                            }
                         }
                     }
                     // With Unconfined, the launched coroutine runs synchronously until
                     // the process calls hold()/passivate()/terminate(), then control
                     // returns here for the next event.
                 }
+                context.checkWaitNotices()
             }
         } finally {
             context.isRunning = false

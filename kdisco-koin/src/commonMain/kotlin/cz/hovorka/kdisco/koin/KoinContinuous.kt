@@ -1,6 +1,6 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.Continuous
+import cz.hovorka.kdisco.engine.Continuous
 import org.koin.core.Koin
 import org.koin.core.component.KoinComponent
 import org.koin.core.parameter.ParametersDefinition

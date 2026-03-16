@@ -1,11 +1,8 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.Process
-import cz.hovorka.kdisco.Simulation
+import cz.hovorka.kdisco.engine.Simulation
 import org.koin.core.Koin
 import org.koin.core.KoinApplication
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
 import org.koin.core.module.Module
 import org.koin.core.parameter.ParametersDefinition
 import org.koin.core.qualifier.Qualifier
@@ -21,10 +18,9 @@ import org.koin.dsl.koinApplication
  *
  * Usage:
  * ```kotlin
- * koinSimulation(myModule) {
+ * koinSimulation(myModule, endTime = 1000.0) {
  *     val server: Server by inject()
  *     Process.activate(server)
- *     run(1000.0)
  * }
  * ```
  */
@@ -61,18 +57,21 @@ class SimulationKoinContext(
     ): Lazy<T> = lazy { koin.get(qualifier, parameters) }
 
     /**
-     * Create, configure, run, and tear down the simulation.
+     * Create, configure, run, and return the simulation.
+     *
+     * The setup lambda runs synchronously inside [Simulation.create] where
+     * the simulation context is active, so [Process.activate] calls go to the
+     * pending-activations queue. Then [Simulation.run] is called as a suspend
+     * function to execute the simulation to [endTime].
      */
-    fun execute(): Simulation {
-        simulation = Simulation.create {
-            // Assign the Simulation to this context BEFORE running user setup, so that
-            // simulationSetup() can call `simulation.run(...)` via the lateinit var.
-            // Inside Simulation.create { }, `this` is the newly created Simulation instance.
+    suspend fun execute(endTime: Double): Simulation {
+        val newSim = Simulation.create {
             this@SimulationKoinContext.simulation = this
             currentKoinContext = this@SimulationKoinContext
             simulationSetup()
         }
-        return simulation
+        newSim.run(endTime)
+        return newSim
     }
 
     /**
@@ -87,16 +86,14 @@ class SimulationKoinContext(
 /**
  * Platform-specific storage for the active [SimulationKoinContext].
  *
- * On JVM this uses [InheritableThreadLocal] so that jDisco process
- * threads can access the Koin context. Other platforms use a simple
+ * On JVM this uses [InheritableThreadLocal]. Other platforms use a simple
  * global variable.
  */
 internal expect var platformKoinContext: SimulationKoinContext?
 
 /**
- * Thread-local (or coroutine-local in future) reference to the
- * active [SimulationKoinContext].  Processes can use this to
- * look up dependencies during the simulation run.
+ * Reference to the active [SimulationKoinContext].
+ * Processes can use this to look up dependencies during the simulation run.
  */
 @PublishedApi
 internal var currentKoinContext: SimulationKoinContext?

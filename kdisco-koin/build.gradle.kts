@@ -8,20 +8,16 @@ kotlin {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
-        // jDisco uses global static state (SQS, processSet, Coroutine.main).
-        // A failed test that leaves a simulation running can corrupt jDisco for
-        // subsequent test classes. forkEvery=1 isolates each test class in its
-        // own JVM so that static state never leaks between classes.
         testRuns["test"].executionTask.configure {
             maxParallelForks = 1
-            forkEvery = 1
+            // No forkEvery needed — kdisco-engine has no static state
         }
     }
 
     sourceSets {
         val commonMain by getting {
             dependencies {
-                api(project(":kdisco-core"))
+                api(project(":kdisco-engine"))
                 implementation("io.insert-koin:koin-core:${project.property("koin.version")}")
             }
         }
@@ -30,6 +26,7 @@ kotlin {
                 implementation(kotlin("test"))
                 implementation("io.insert-koin:koin-test:${project.property("koin.version")}")
                 implementation("com.willowtreeapps.assertk:assertk:${project.property("assertk.version")}")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
             }
         }
         val jvmMain by getting {
@@ -41,8 +38,6 @@ kotlin {
             dependencies {
                 implementation(kotlin("test-junit5"))
                 implementation("org.junit.jupiter:junit-jupiter:${project.property("junit.version")}")
-                // SLF4J for jDisco logging
-                implementation("org.slf4j:slf4j-simple:1.7.36")
             }
         }
     }

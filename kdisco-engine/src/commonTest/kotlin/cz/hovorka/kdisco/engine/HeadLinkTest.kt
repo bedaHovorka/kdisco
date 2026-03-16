@@ -1,11 +1,8 @@
 package cz.hovorka.kdisco.engine
 
+import assertk.assertThat
+import assertk.assertions.*
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
-import kotlin.test.assertFalse
-import kotlin.test.assertSame
 
 class HeadLinkTest {
 
@@ -14,10 +11,10 @@ class HeadLinkTest {
     @Test
     fun emptyHeadHasCardinalZero() {
         val head = Head()
-        assertTrue(head.empty())
-        assertEquals(0, head.cardinal())
-        assertNull(head.first())
-        assertNull(head.last())
+        assertThat(head.empty()).isTrue()
+        assertThat(head.cardinal()).isEqualTo(0)
+        assertThat(head.first()).isNull()
+        assertThat(head.last()).isNull()
     }
 
     @Test
@@ -25,10 +22,10 @@ class HeadLinkTest {
         val head = Head()
         val item = Item()
         item.into(head)
-        assertFalse(head.empty())
-        assertEquals(1, head.cardinal())
-        assertSame(item, head.first())
-        assertSame(item, head.last())
+        assertThat(head.empty()).isFalse()
+        assertThat(head.cardinal()).isEqualTo(1)
+        assertThat(head.first()).isSameInstanceAs(item)
+        assertThat(head.last()).isSameInstanceAs(item)
     }
 
     @Test
@@ -40,9 +37,9 @@ class HeadLinkTest {
         a.into(head)
         b.into(head)
         c.into(head)
-        assertEquals(3, head.cardinal())
-        assertSame(a, head.first())
-        assertSame(c, head.last())
+        assertThat(head.cardinal()).isEqualTo(3)
+        assertThat(head.first()).isSameInstanceAs(a)
+        assertThat(head.last()).isSameInstanceAs(c)
     }
 
     @Test
@@ -53,8 +50,8 @@ class HeadLinkTest {
         a.into(head)
         b.into(head)
         a.out()
-        assertEquals(1, head.cardinal())
-        assertSame(b, head.first())
+        assertThat(head.cardinal()).isEqualTo(1)
+        assertThat(head.first()).isSameInstanceAs(b)
     }
 
     @Test
@@ -63,7 +60,7 @@ class HeadLinkTest {
         val a = Item()
         a.into(head)
         a.out()
-        assertTrue(head.empty())
+        assertThat(head.empty()).isTrue()
     }
 
     @Test
@@ -73,7 +70,7 @@ class HeadLinkTest {
         val b = Item()
         a.into(head)
         b.into(head)
-        assertSame(b, a.suc())
+        assertThat(a.suc()).isSameInstanceAs(b)
     }
 
     @Test
@@ -83,7 +80,7 @@ class HeadLinkTest {
         val b = Item()
         a.into(head)
         b.into(head)
-        assertSame(a, b.pred())
+        assertThat(b.pred()).isSameInstanceAs(a)
     }
 
     @Test
@@ -94,7 +91,7 @@ class HeadLinkTest {
         a.into(head)
         b.into(head)
         // Last link's successor is the Head sentinel — returns null
-        assertNull(b.suc())
+        assertThat(b.suc()).isNull()
     }
 
     @Test
@@ -105,7 +102,7 @@ class HeadLinkTest {
         a.into(head)
         b.into(head)
         // First link's predecessor is the Head sentinel — returns null
-        assertNull(a.pred())
+        assertThat(a.pred()).isNull()
     }
 
     @Test
@@ -117,10 +114,10 @@ class HeadLinkTest {
         a.into(head)
         c.into(head)
         b.follow(a)  // insert b after a
-        assertEquals(3, head.cardinal())
-        assertSame(a, head.first())
-        assertSame(b, a.suc())
-        assertSame(c, b.suc())
+        assertThat(head.cardinal()).isEqualTo(3)
+        assertThat(head.first()).isSameInstanceAs(a)
+        assertThat(a.suc()).isSameInstanceAs(b)
+        assertThat(b.suc()).isSameInstanceAs(c)
     }
 
     @Test
@@ -132,9 +129,9 @@ class HeadLinkTest {
         a.into(head)
         c.into(head)
         b.precede(c)  // insert b before c
-        assertEquals(3, head.cardinal())
-        assertSame(b, a.suc())
-        assertSame(c, b.suc())
+        assertThat(head.cardinal()).isEqualTo(3)
+        assertThat(a.suc()).isSameInstanceAs(b)
+        assertThat(b.suc()).isSameInstanceAs(c)
     }
 
     @Test
@@ -144,8 +141,8 @@ class HeadLinkTest {
         Item().into(head)
         Item().into(head)
         head.clear()
-        assertTrue(head.empty())
-        assertEquals(0, head.cardinal())
+        assertThat(head.empty()).isTrue()
+        assertThat(head.cardinal()).isEqualTo(0)
     }
 
     @Test
@@ -156,8 +153,8 @@ class HeadLinkTest {
         item.into(head1)
         head1.clear()
         item.into(head2)
-        assertEquals(1, head2.cardinal())
-        assertSame(item, head2.first())
+        assertThat(head2.cardinal()).isEqualTo(1)
+        assertThat(head2.first()).isSameInstanceAs(item)
     }
 
     @Test
@@ -166,11 +163,11 @@ class HeadLinkTest {
         val head2 = Head()
         val item = Item()
         item.into(head1)
-        assertEquals(1, head1.cardinal())
+        assertThat(head1.cardinal()).isEqualTo(1)
         item.into(head2)
-        assertEquals(0, head1.cardinal())
-        assertEquals(1, head2.cardinal())
-        assertSame(item, head2.first())
+        assertThat(head1.cardinal()).isEqualTo(0)
+        assertThat(head2.cardinal()).isEqualTo(1)
+        assertThat(head2.first()).isSameInstanceAs(item)
     }
 
     @Test
@@ -178,8 +175,8 @@ class HeadLinkTest {
         val head = Head()
         val items = List(5) { Item().also { it.into(head) } }
         val result = head.asSequence().toList()
-        assertEquals(5, result.size)
-        assertEquals(items, result)
+        assertThat(result.size).isEqualTo(5)
+        assertThat(result).isEqualTo(items)
     }
 
     @Test
@@ -191,7 +188,7 @@ class HeadLinkTest {
         special.into(head)
         Item().into(head)
         val result = head.asSequenceOf<Special>().toList()
-        assertEquals(1, result.size)
-        assertSame(special, result[0])
+        assertThat(result.size).isEqualTo(1)
+        assertThat(result[0]).isSameInstanceAs(special)
     }
 }

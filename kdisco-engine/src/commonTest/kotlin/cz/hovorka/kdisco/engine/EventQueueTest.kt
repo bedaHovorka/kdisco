@@ -1,10 +1,8 @@
 package cz.hovorka.kdisco.engine
 
+import assertk.assertThat
+import assertk.assertions.*
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
-import kotlin.test.assertFalse
 
 class EventQueueTest {
 
@@ -15,8 +13,8 @@ class EventQueueTest {
     @Test
     fun emptyQueueReturnsNull() {
         val eq = EventQueue()
-        assertTrue(eq.isEmpty())
-        assertNull(eq.removeFirst())
+        assertThat(eq.isEmpty()).isTrue()
+        assertThat(eq.removeFirst()).isNull()
     }
 
     @Test
@@ -30,18 +28,18 @@ class EventQueueTest {
         eq.schedule(p3, 15.0)
 
         val first = eq.removeFirst()!!
-        assertEquals(5.0, first.time)
-        assertEquals(p2, first.process)
+        assertThat(first.time).isEqualTo(5.0)
+        assertThat(first.process).isEqualTo(p2)
 
         val second = eq.removeFirst()!!
-        assertEquals(10.0, second.time)
-        assertEquals(p1, second.process)
+        assertThat(second.time).isEqualTo(10.0)
+        assertThat(second.process).isEqualTo(p1)
 
         val third = eq.removeFirst()!!
-        assertEquals(15.0, third.time)
-        assertEquals(p3, third.process)
+        assertThat(third.time).isEqualTo(15.0)
+        assertThat(third.process).isEqualTo(p3)
 
-        assertTrue(eq.isEmpty())
+        assertThat(eq.isEmpty()).isTrue()
     }
 
     @Test
@@ -54,9 +52,9 @@ class EventQueueTest {
         eq.schedule(p2, 5.0)
         eq.schedule(p3, 5.0)
 
-        assertEquals(p1, eq.removeFirst()!!.process)
-        assertEquals(p2, eq.removeFirst()!!.process)
-        assertEquals(p3, eq.removeFirst()!!.process)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p1)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p2)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p3)
     }
 
     @Test
@@ -69,9 +67,9 @@ class EventQueueTest {
         eq.schedule(p2, 5.0)
         eq.schedule(p3, 5.0, priority = true)  // should go before p1 and p2
 
-        assertEquals(p3, eq.removeFirst()!!.process)
-        assertEquals(p1, eq.removeFirst()!!.process)
-        assertEquals(p2, eq.removeFirst()!!.process)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p3)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p1)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p2)
     }
 
     @Test
@@ -85,9 +83,9 @@ class EventQueueTest {
         eq.schedule(p3, 15.0)
 
         eq.remove(p2)
-        assertEquals(p1, eq.removeFirst()!!.process)
-        assertEquals(p3, eq.removeFirst()!!.process)
-        assertTrue(eq.isEmpty())
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p1)
+        assertThat(eq.removeFirst()!!.process).isEqualTo(p3)
+        assertThat(eq.isEmpty()).isTrue()
     }
 
     @Test
@@ -97,7 +95,7 @@ class EventQueueTest {
         eq.schedule(p1, 5.0)
 
         val peeked = eq.peek()!!
-        assertEquals(p1, peeked.process)
-        assertFalse(eq.isEmpty())
+        assertThat(peeked.process).isEqualTo(p1)
+        assertThat(eq.isEmpty()).isFalse()
     }
 }

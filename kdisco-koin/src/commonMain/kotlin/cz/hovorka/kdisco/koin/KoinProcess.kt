@@ -1,6 +1,6 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.Process
+import cz.hovorka.kdisco.engine.Process
 import org.koin.core.Koin
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -18,7 +18,7 @@ import org.koin.core.qualifier.Qualifier
  *     private val queue: ServiceQueue by inject()
  *     private val log: SimulationLog by inject()
  *
- *     override fun actions() {
+ *     override suspend fun actions() {
  *         log.record("Customer arrives at t=${time()}")
  *         queue.enqueue(this)
  *         passivate()   // wait for service
@@ -30,14 +30,8 @@ import org.koin.core.qualifier.Qualifier
 abstract class KoinProcess : Process(), KoinComponent {
 
     /**
-     * Koin instance captured at construction time on the setup thread.
-     *
-     * jDisco runs each process in a separate Runner thread that is created lazily
-     * at first activation. InheritableThreadLocal propagation to these threads is
-     * not guaranteed (threads may be reused from a pool or created at unpredictable
-     * times). Capturing the Koin instance eagerly here — while the setup lambda
-     * still runs on the test/calling thread where [activeSimulationKoin] is valid —
-     * ensures that [inject] delegates work correctly from any Runner thread.
+     * Koin instance captured at construction time during the simulation setup block,
+     * while [activeSimulationKoin] is valid on the current coroutine context.
      */
     private val capturedKoin: Koin = activeSimulationKoin().koin
 

@@ -1,9 +1,9 @@
 package cz.hovorka.kdisco.engine
 
+import assertk.assertThat
+import assertk.assertions.*
 import kotlin.math.abs
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class RandomTest {
 
@@ -12,7 +12,7 @@ class RandomTest {
         val r1 = Random(42L)
         val r2 = Random(42L)
         repeat(100) {
-            assertEquals(r1.uniform(0.0, 1.0), r2.uniform(0.0, 1.0))
+            assertThat(r2.uniform(0.0, 1.0)).isEqualTo(r1.uniform(0.0, 1.0))
         }
     }
 
@@ -21,7 +21,7 @@ class RandomTest {
         val r = Random(1L)
         repeat(1000) {
             val v = r.uniform(5.0, 10.0)
-            assertTrue(v >= 5.0 && v < 10.0, "uniform($v) out of range")
+            assertThat(v).isBetween(5.0, 10.0)
         }
     }
 
@@ -32,7 +32,7 @@ class RandomTest {
         val n = 10000
         repeat(n) { if (r.draw(0.5)) trueCount++ }
         val ratio = trueCount.toDouble() / n
-        assertTrue(abs(ratio - 0.5) < 0.05, "draw(0.5) ratio was $ratio")
+        assertThat(ratio).isBetween(0.45, 0.55)
     }
 
     @Test
@@ -40,7 +40,7 @@ class RandomTest {
         val r = Random(1L)
         repeat(1000) {
             val v = r.randInt(3, 7)
-            assertTrue(v in 3..7, "randInt($v) out of range")
+            assertThat(v).isBetween(3, 7)
         }
     }
 
@@ -48,7 +48,7 @@ class RandomTest {
     fun negexpReturnsPositive() {
         val r = Random(1L)
         repeat(1000) {
-            assertTrue(r.negexp(1.0) >= 0.0)
+            assertThat(r.negexp(1.0)).isGreaterThanOrEqualTo(0.0)
         }
     }
 
@@ -58,6 +58,6 @@ class RandomTest {
         val mean = 10.0
         val samples = DoubleArray(10000) { r.normal(mean, 1.0) }
         val sampleMean = samples.average()
-        assertTrue(abs(sampleMean - mean) < 0.1, "normal mean was $sampleMean, expected ~$mean")
+        assertThat(sampleMean).isBetween(mean - 0.1, mean + 0.1)
     }
 }

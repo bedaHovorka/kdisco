@@ -1,19 +1,17 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.Head
-import cz.hovorka.kdisco.Process
-import org.junit.jupiter.api.Timeout
+import assertk.assertThat
+import assertk.assertions.*
+import cz.hovorka.kdisco.engine.Continuous
+import cz.hovorka.kdisco.engine.Head
+import cz.hovorka.kdisco.engine.Process
+import kotlinx.coroutines.test.runTest
 import org.koin.core.parameter.parametersOf
 import org.koin.dsl.module
-import java.util.concurrent.TimeUnit
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
- * Integration tests for the kDisco–Koin bridge.
- *
- * Requires jdisco-1.2.0.jar on the classpath.
+ * Integration tests for the kDisco–Koin bridge using kdisco-engine.
  */
 class KoinSimulationTest {
 
@@ -23,8 +21,16 @@ class KoinSimulationTest {
     class ServiceQueue {
         val head = Head()
         val served = mutableListOf<Double>()
+        var server: Server? = null
 
-        fun enqueue(p: Process) = p.into(head)
+        fun enqueue(p: Process) {
+            p.into(head)
+            // Only wake the server if it is actually passivated (idle), not while it is in hold().
+            // Reactivating during hold() would remove its scheduled event and shorten the
+            // current service time.
+            server?.let { srv -> if (!srv.terminated() && srv.idle) Process.reactivate(srv) }
+        }
+
         fun dequeue(): Process? = head.first() as? Process
     }
 
@@ -40,7 +46,7 @@ class KoinSimulationTest {
         private val queue: ServiceQueue by inject()
         private val stats: SimStats by inject()
 
-        override fun actions() {
+        override suspend fun actions() {
             stats.arrivals.add(time())
             queue.enqueue(this)
             passivate() // wait for server
@@ -50,18 +56,32 @@ class KoinSimulationTest {
 
     class Server(private val serviceTime: Double) : KoinProcess() {
         private val queue: ServiceQueue by inject()
+        var idle = false
 
-        override fun actions() {
+        override suspend fun actions() {
             while (true) {
-                // waitUntil returns immediately if queue is already non-empty,
-                // or suspends until a customer arrives (condition re-evaluated after each event).
-                // During MAIN cleanup, jDisco throws TerminateException which exits the loop cleanly.
-                waitUntil { !queue.head.empty() }
-                val next = queue.dequeue() ?: return
+                if (queue.head.empty()) {
+                    idle = true
+                    passivate()
+                    idle = false
+                }
+                val next = queue.dequeue() ?: continue
                 next.out()
                 hold(serviceTime)
-                Process.activate(next)
+                Process.reactivate(next)
             }
+        }
+    }
+
+    // ── KoinContinuous test helper ────────────────────────────
+
+    /** A simple Continuous process that uses Koin injection. */
+    class TrackedContinuous : KoinContinuous() {
+        private val stats: SimStats by inject()
+        var derivativesCallCount = 0
+
+        override fun derivatives() {
+            derivativesCallCount++
         }
     }
 
@@ -77,54 +97,99 @@ class KoinSimulationTest {
     // ── Tests ────────────────────────────────────────────────
 
     @Test
-    @Timeout(30, unit = TimeUnit.SECONDS)
-    fun koinSimulationInjectsSharedState() {
+    fun koinSimulationInjectsSharedState() = runTest {
         var stats: SimStats? = null
 
-        koinSimulation(shopModule) {
+        koinSimulation(shopModule, endTime = 100.0) {
             stats = get()
 
             val server: Server = get { parametersOf(3.0) }
+            // Register server in queue so customers can wake it
+            val queue: ServiceQueue = get()
+            queue.server = server
+
             Process.activate(server)
 
             repeat(5) { i ->
                 val customer: Customer = get { parametersOf(i) }
                 Process.activate(customer, delay = i * 2.0)
             }
-
-            simulation.run(100.0)
         }
 
         // All 5 customers should have arrived and been served
-        assertEquals(5, stats!!.arrivals.size, "All customers should arrive")
-        assertEquals(5, stats!!.departures.size, "All customers should depart")
+        assertThat(stats!!.arrivals.size).isEqualTo(5)
+        assertThat(stats!!.departures.size).isEqualTo(5)
     }
 
     @Test
-    @Timeout(30, unit = TimeUnit.SECONDS)
-    fun eachSimulationGetsIsolatedKoinContext() {
+    fun eachSimulationGetsIsolatedKoinContext() = runTest {
         val statsPerRun = mutableListOf<SimStats>()
 
         repeat(3) {
-            koinSimulation(shopModule) {
+            koinSimulation(shopModule, endTime = 10.0) {
                 val stats: SimStats = get()
                 statsPerRun.add(stats)
 
                 val server: Server = get { parametersOf(1.0) }
+                val queue: ServiceQueue = get()
+                queue.server = server
+
                 Process.activate(server)
 
                 val customer: Customer = get { parametersOf(0) }
                 Process.activate(customer)
-
-                simulation.run(10.0)
             }
         }
 
         // Each run should have produced its own SimStats instance
-        assertEquals(3, statsPerRun.size)
-        assertTrue(
-            statsPerRun[0] !== statsPerRun[1] && statsPerRun[1] !== statsPerRun[2],
-            "Each simulation run should have an isolated Koin context"
-        )
+        assertThat(statsPerRun.size).isEqualTo(3)
+        assertThat(statsPerRun[0]).isNotSameInstanceAs(statsPerRun[1])
+        assertThat(statsPerRun[1]).isNotSameInstanceAs(statsPerRun[2])
+    }
+
+    @Test
+    fun koinSimulationSweepCreatesIsolatedContexts() = runTest {
+        val statsList = mutableListOf<SimStats>()
+
+        koinSimulationSweep(shopModule, params = listOf(1.0, 2.0, 3.0), endTime = 50.0) { serviceTime ->
+            val stats: SimStats = get()
+            statsList.add(stats)
+
+            val server: Server = get { parametersOf(serviceTime) }
+            val queue: ServiceQueue = get()
+            queue.server = server
+            Process.activate(server)
+
+            repeat(3) { i ->
+                val customer: Customer = get { parametersOf(i) }
+                Process.activate(customer, delay = i * 5.0)
+            }
+        }
+
+        assertThat(statsList.size).isEqualTo(3)
+        assertThat(statsList[0]).isNotSameInstanceAs(statsList[1])
+        assertThat(statsList[1]).isNotSameInstanceAs(statsList[2])
+    }
+
+    @Test
+    fun koinContinuousCanInjectDependencies() = runTest {
+        val continuousModule = module {
+            single { SimStats() }
+            single { TrackedContinuous() }
+        }
+
+        var tc: TrackedContinuous? = null
+        koinSimulation(continuousModule, endTime = 5.0) {
+            tc = get<TrackedContinuous>()
+            tc!!.start()
+            // Activate a minimal process to drive simulation time forward
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(5.0)
+                }
+            })
+        }
+
+        assertThat(tc!!.derivativesCallCount).isGreaterThan(0)
     }
 }

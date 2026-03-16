@@ -56,10 +56,42 @@ abstract class Process : Link() {
     }
 
     /**
+     * Suspends this process until [condition] returns true.
+     *
+     * The condition is checked once immediately — if already true, this returns at once.
+     * Otherwise the process is registered in the wait-notice list. It will be
+     * re-awakened automatically after each discrete event and after each
+     * continuous-integration step.
+     *
+     * The condition may be checked spuriously; [waitUntil] loops until it is confirmed
+     * true before returning.
+     *
+     * Must only be called from within [actions] (i.e., from a running process).
+     */
+    suspend fun waitUntil(condition: Condition) {
+        while (!condition.test()) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                continuation = cont
+                context.waitNotices.add(WaitNotice(this, condition))
+                cont.invokeOnCancellation {
+                    continuation = null
+                    context.waitNotices.removeAll { it.process === this@Process }
+                }
+            }
+        }
+    }
+
+    /** Convenience overload accepting a lambda. */
+    suspend fun waitUntil(condition: () -> Boolean) = waitUntil(Condition(condition))
+
+    /**
      * Terminates this process immediately.
      * Throws [ProcessTerminatedException] to unwind the coroutine call stack.
+     *
+     * Subclasses may override to implement graceful shutdown (e.g., set a flag and
+     * reactivate to allow the process to complete its current cycle first).
      */
-    fun terminate() {
+    open fun terminate() {
         _terminated = true
         context.eventQueue.remove(this)
         throw ProcessTerminatedException()
@@ -99,8 +131,14 @@ abstract class Process : Link() {
 
         /**
          * Reactivates a previously passivated process at current time.
+         *
+         * No-op if [process] is already terminated.
+         * If [process] is already in the event queue (e.g. mid-[hold]), it is
+         * rescheduled at the current time (no duplicate event is created).
          */
         fun reactivate(process: Process) {
+            if (process._terminated) return
+            process.context.eventQueue.remove(process)   // prevent duplicate if already scheduled
             process.context.eventQueue.schedule(process, process.context.currentTime)
         }
 

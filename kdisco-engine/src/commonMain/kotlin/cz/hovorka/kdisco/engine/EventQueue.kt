@@ -1,17 +1,23 @@
 package cz.hovorka.kdisco.engine
 
 /**
- * Event queue (replaces jDisco's SQS). Maintains scheduled events
- * sorted by time, with FIFO ordering for equal times.
+ * Event queue. Maintains scheduled events sorted by time.
  *
- * Uses ArrayList with binary search insertion. O(log n) search, O(n) insert.
- * Sufficient for typical simulations. Can be optimized to a heap if needed
- * for simulations with very large numbers of concurrent processes.
+ * For equal times:
+ * - Normal events (`priority = false`): FIFO — earlier-scheduled events run first
+ *   (ascending insertion counter, so lower order runs first).
+ * - Priority events (`priority = true`): LIFO — later-scheduled events run first
+ *   (descending insertion counter, so higher/less-negative order runs first).
+ *   This matches jDisco behaviour where higher-priority activations take precedence.
+ *
+ * Uses ArrayList with binary search insertion: O(log n) search, O(n) insert.
+ * Sufficient for typical simulations; can be replaced with a heap for very large
+ * process counts.
  */
 internal class EventQueue {
     private val events = mutableListOf<ScheduledEvent>()
-    private var normalCounter: Long = 0      // non-priority: 0, 1, 2, … (ascending)
-    private var priorityCounter: Long = -1   // priority: -1, -2, -3, … (descending)
+    private var normalCounter: Long = 0      // FIFO: ascending — lower order runs first
+    private var priorityCounter: Long = -1   // LIFO: descending — higher (less negative) order runs first
 
     fun schedule(process: Process, time: Double, priority: Boolean = false) {
         val order = if (priority) priorityCounter-- else normalCounter++
