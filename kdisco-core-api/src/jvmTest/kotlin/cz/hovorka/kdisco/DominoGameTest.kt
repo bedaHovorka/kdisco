@@ -71,14 +71,18 @@ class DominoGameTest {
 
         class DominoGame : Process() {
             override fun actions() {
-                dtMin = 1.0e-6; dtMax = 0.1
                 Process.activate(Stone(0.001))
                 waitUntil { fallingStones.empty() }
                 waveSpeed = d * (stones - 1) / time()
             }
         }
 
-        runSimulation(endTime = 300.0) { Process.activate(DominoGame()) }
+        val savedDtMin = dtMin; val savedDtMax = dtMax
+        runSimulation(endTime = 300.0) {
+            dtMin = 1.0e-6; dtMax = 0.1
+            Process.activate(DominoGame())
+        }
+        dtMin = savedDtMin; dtMax = savedDtMax
 
         assertThat(stones).isEqualTo(nbrStones)
         assertThat(waveSpeed).isBetween(0.30, 1.50)
