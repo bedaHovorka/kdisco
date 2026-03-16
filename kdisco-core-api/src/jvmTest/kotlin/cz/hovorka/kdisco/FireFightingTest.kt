@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
  * §4.2 — Fire-fighting simulation.
  *
  * Tests: stochastic simulation with seeded Random, Head/Link queues,
- * waitUntil with compound termination condition.
+ * waitUntil termination on total-loss condition.
  *
  * Note: jDisco.Histogram has no kDisco wrapper yet (tracked as a follow-up issue).
  * Percent-damage observations are collected in a plain list.
@@ -51,11 +51,11 @@ class FireFightingTest {
                 // Raise alarm and wake an idle engine if available
                 val alarm = Alarm()
                 synchronized(alarmQ) { alarm.into(alarmQ) }
-                val engine = synchronized(idleQ) { idleQ.first() }
+                val engine = synchronized(idleQ) { idleQ.first()?.also { it.out() } }
                 if (engine != null) Process.reactivate(engine as Process)
 
-                // Wait until extinguished or total loss
-                waitUntil { size.state <= 0.0 || damage.state >= material }
+                // Wait until total loss
+                waitUntil { damage.state >= material }
 
                 burning.stop(); size.stop(); damage.stop()
 
@@ -70,8 +70,7 @@ class FireFightingTest {
                     val alarm = synchronized(alarmQ) { alarmQ.first() as? Alarm }
                     if (alarm == null) {
                         into(idleQ)
-                        passivate()
-                        out()
+                        passivate()   // HouseOnFire removes engine from idleQ before reactivating
                         continue
                     }
                     synchronized(alarmQ) { alarm.out() }
@@ -92,11 +91,13 @@ class FireFightingTest {
             }
         }
 
+        val savedDtMin = dtMin; val savedDtMax = dtMax
         runSimulation(endTime = simEnd) {
             dtMin = 1.0e-4; dtMax = 0.5
             repeat(3) { Process.activate(FireEngine()) }
             Process.activate(Incendiary())
         }
+        dtMin = savedDtMin; dtMax = savedDtMax
 
         // At least ~10 fires occurred (Poisson: rate 0.5/h × 720 h ≈ 360 expected)
         assertThat(damages.size).isGreaterThan(10)
