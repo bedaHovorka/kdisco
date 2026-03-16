@@ -81,6 +81,7 @@ class PilotEjectionTest {
      */
     private fun simulateEjection(vA: Double, h: Double): EjectionResult {
         val savedDtMin = dtMin; val savedDtMax = dtMax
+        dtMin = 1.0e-5; dtMax = 0.01
         val yVar  = Variable(h)
         val vyVar = Variable(RAIL_VEL)
         val xVar  = Variable(0.0)
@@ -111,7 +112,6 @@ class PilotEjectionTest {
 
         class PilotEjection : Process() {
             override fun actions() {
-                dtMin = 1.0e-5; dtMax = 0.01
                 yVar.start(); vyVar.start()
 
                 val phase1 = Phase1()

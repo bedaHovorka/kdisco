@@ -76,10 +76,12 @@ class BouncingBallsTest {
         val ball3 = Ball(x0[2], y0[2],   8.0, -20.0)
         val balls  = listOf(ball1, ball2, ball3)
 
+        val savedDtMin = dtMin; val savedDtMax = dtMax
         runSimulation(endTime = END_T) {
             dtMin = 1.0e-4; dtMax = 0.05   // small step for accurate event detection
             balls.forEach { Process.activate(it) }
         }
+        dtMin = savedDtMin; dtMax = savedDtMax
 
         // All balls must be within the box
         for (ball in balls) {
