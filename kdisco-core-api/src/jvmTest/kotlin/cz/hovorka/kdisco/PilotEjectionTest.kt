@@ -32,7 +32,7 @@ private val DENSITY_TABLE = listOf(
     60000.0 to 2238e-7
 )
 
-internal fun linearInterpolate(table: List<Pair<Double, Double>>, xVal: Double): Double {
+private fun linearInterpolate(table: List<Pair<Double, Double>>, xVal: Double): Double {
     if (xVal <= table.first().first) return table.first().second
     if (xVal >= table.last().first)  return table.last().second
     val i = table.indexOfFirst { it.first > xVal } - 1
@@ -80,6 +80,7 @@ class PilotEjectionTest {
      *    unsupported for local classes in Kotlin)
      */
     private fun simulateEjection(vA: Double, h: Double): EjectionResult {
+        val savedDtMin = dtMin; val savedDtMax = dtMax
         val yVar  = Variable(h)
         val vyVar = Variable(RAIL_VEL)
         val xVar  = Variable(0.0)
@@ -119,7 +120,8 @@ class PilotEjectionTest {
                 phase1.stop()
 
                 xVar.start()
-                Phase2().start()
+                val phase2 = Phase2()
+                phase2.start()
                 waitUntil { xVar.state <= -30.0 } // cleared stabilizer (30 ft behind cockpit)
                 // Capture values at event time and stop integration so they stay frozen.
                 // (Variables continue integrating until explicitly stopped; reading them
@@ -128,11 +130,12 @@ class PilotEjectionTest {
                 capturedX = xVar.state
                 capturedY = yVar.state
                 safe = capturedY >= 20.0
-                xVar.stop(); yVar.stop(); vyVar.stop()
+                phase2.stop(); xVar.stop(); yVar.stop(); vyVar.stop()
             }
         }
 
         runSimulation(endTime = 60.0) { Process.activate(PilotEjection()) }
+        dtMin = savedDtMin; dtMax = savedDtMax
         return EjectionResult(safe, capturedX, capturedY)
     }
 }

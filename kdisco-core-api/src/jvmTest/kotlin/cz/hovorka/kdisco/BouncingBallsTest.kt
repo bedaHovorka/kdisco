@@ -41,7 +41,6 @@ class BouncingBallsTest {
             }
 
             override fun actions() {
-                dtMin = 1.0e-4; dtMax = 0.05   // small step for accurate event detection
                 x.start(); y.start()
 
                 val endT = time() + END_T
@@ -78,6 +77,7 @@ class BouncingBallsTest {
         val balls  = listOf(ball1, ball2, ball3)
 
         runSimulation(endTime = END_T) {
+            dtMin = 1.0e-4; dtMax = 0.05   // small step for accurate event detection
             balls.forEach { Process.activate(it) }
         }
 

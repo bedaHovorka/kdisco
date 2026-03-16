@@ -44,7 +44,6 @@ class DominoGameTest {
             val omega = Variable(initialOmega)
 
             override fun actions() {
-                dtMin = 1.0e-6; dtMax = 0.1
                 phi.start(); omega.start()
 
                 val fall = object : Continuous() {
@@ -66,12 +65,13 @@ class DominoGameTest {
 
                 waitUntil { phi.state >= PI / 2.0 }
                 out()
-                phi.stop(); omega.stop()
+                fall.stop(); phi.stop(); omega.stop()
             }
         }
 
         class DominoGame : Process() {
             override fun actions() {
+                dtMin = 1.0e-6; dtMax = 0.1
                 Process.activate(Stone(0.001))
                 waitUntil { fallingStones.empty() }
                 waveSpeed = d * (stones - 1) / time()

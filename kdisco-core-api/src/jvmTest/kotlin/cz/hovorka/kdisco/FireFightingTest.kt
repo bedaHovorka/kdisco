@@ -38,7 +38,6 @@ class FireFightingTest {
             val damage = Variable(0.0)
 
             override fun actions() {
-                dtMin = 1.0e-4; dtMax = 0.5
                 size.start(); damage.start()
 
                 val burning = object : Continuous() {
@@ -58,7 +57,7 @@ class FireFightingTest {
                 // Wait until extinguished or total loss
                 waitUntil { size.state <= 0.0 || damage.state >= material }
 
-                size.stop(); damage.stop()
+                burning.stop(); size.stop(); damage.stop()
 
                 val pct = (damage.state / material).coerceIn(0.0, 1.0) * 100.0
                 synchronized(damages) { damages.add(pct) }
@@ -94,6 +93,7 @@ class FireFightingTest {
         }
 
         runSimulation(endTime = simEnd) {
+            dtMin = 1.0e-4; dtMax = 0.5
             repeat(3) { Process.activate(FireEngine()) }
             Process.activate(Incendiary())
         }

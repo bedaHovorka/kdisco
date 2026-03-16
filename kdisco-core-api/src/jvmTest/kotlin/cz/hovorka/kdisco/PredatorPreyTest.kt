@@ -19,6 +19,7 @@ class PredatorPreyTest {
             var period   = 0.0
 
             override fun actions() {
+                val savedDtMin = dtMin; val savedDtMax = dtMax; val savedMaxRelError = maxRelError
                 dtMin = 1.0e-5; dtMax = 1.0; maxRelError = 1.0e-5
                 predator.start(); prey.start()
 
@@ -40,6 +41,9 @@ class PredatorPreyTest {
                 waitUntil { prey.rate > 0 }
                 waitUntil { prey.rate <= 0 }
                 period = time() - t1
+
+                dynamics.stop(); predator.stop(); prey.stop()
+                dtMin = savedDtMin; dtMax = savedDtMax; maxRelError = savedMaxRelError
             }
         }
 

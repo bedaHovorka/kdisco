@@ -61,10 +61,12 @@ class ChemicalReactorTest {
         class Coordinator : Process() {
             override fun actions() {
                 pressure.start()
-                PressureDynamics().start()
+                val pd = PressureDynamics()
+                pd.start()
                 val reactors = List(nbrReactors) { Reactor(it) }
                 reactors.forEach { Process.activate(it) }
                 hold(simEnd + 1.0)
+                pd.stop(); pressure.stop()
             }
         }
 

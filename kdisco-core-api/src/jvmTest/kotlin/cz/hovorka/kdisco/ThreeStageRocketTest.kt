@@ -22,6 +22,8 @@ class ThreeStageRocketTest {
             var area = 0.0
 
             override fun actions() {
+                val savedDtMin = dtMin; val savedDtMax = dtMax
+                val savedMaxAbsError = maxAbsError; val savedMaxRelError = maxRelError
                 dtMin = 0.00001; dtMax = 100.0
                 maxAbsError = 0.00001; maxRelError = 0.00001
 
@@ -56,6 +58,10 @@ class ThreeStageRocketTest {
                 // Stage 3
                 mass.state = 8137.0; massFlow = 14.75; flowVelocity = 15250.0; area = 360.0
                 hold(479.0)
+
+                motion.stop(); mass.stop(); velocity.stop(); altitude.stop()
+                dtMin = savedDtMin; dtMax = savedDtMax
+                maxAbsError = savedMaxAbsError; maxRelError = savedMaxRelError
             }
         }
 
