@@ -76,6 +76,12 @@ kotlin {
                 implementation("com.willowtreeapps.assertk:assertk:${project.property("assertk.version")}")
             }
         }
+        jvmTest {
+            dependencies {
+                implementation(kotlin("test-junit5"))
+                implementation("org.junit.jupiter:junit-jupiter:5.10.2")
+            }
+        }
     }
 }
 
