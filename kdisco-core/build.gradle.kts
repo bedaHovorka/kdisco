@@ -3,50 +3,89 @@ plugins {
     `maven-publish`
 }
 
+group = "cz.hovorka.kdisco"
+version = "0.3.0-SNAPSHOT"
+
 kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     jvm {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
         }
-        // jDisco uses global static state (SQS, processSet, Coroutine.main).
-        // A failed test that leaves a simulation running can corrupt jDisco for
-        // subsequent test classes. forkEvery=1 isolates each test class in its
-        // own JVM so that static state never leaks between classes.
         testRuns["test"].executionTask.configure {
             maxParallelForks = 1
-            forkEvery = 1
+            // No forkEvery needed — kdisco-core has no static state
         }
     }
 
+    // Uncomment when Android SDK is available:
+    // androidTarget {
+    //     compilerOptions {
+    //         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+    //     }
+    // }
+
+    js(IR) {
+        browser()
+        nodejs()
+    }
+
+    // TODO: enable wasmJs when toolchain configured
+    // @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    // wasmJs {
+    //     browser()
+    //     nodejs()
+    // }
+
+    // Desktop native targets
+    linuxX64()
+    macosX64()
+    macosArm64()
+    // TODO: enable mingwX64 when building on Windows
+    // mingwX64()
+
+    // TODO: enable iOS targets when building on macOS
+    // iosArm64()
+    // iosX64()
+    // iosSimulatorArm64()
+
+    // Shared source set hierarchy for native targets
+    applyDefaultHierarchyTemplate()
+
     sourceSets {
-        val commonMain by getting {
+        val nonJvmMain by creating {
+            dependsOn(commonMain.get())
+        }
+        jsMain.get().dependsOn(nonJvmMain)
+        nativeMain.get().dependsOn(nonJvmMain)
+
+        commonMain {
             dependencies {
-                implementation(kotlin("stdlib-common"))
+                implementation(kotlin("stdlib"))
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
             }
         }
-        val commonTest by getting {
+        commonTest {
             dependencies {
                 implementation(kotlin("test"))
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
                 implementation("com.willowtreeapps.assertk:assertk:${project.property("assertk.version")}")
-            }
-        }
-        val jvmMain by getting {
-            dependencies {
-                implementation(kotlin("stdlib-jdk8"))
-                api("dk.ruc.keld:jdisco:1.2.0")
-            }
-        }
-        val jvmTest by getting {
-            dependencies {
-                implementation(kotlin("test-junit5"))
-                implementation("org.junit.jupiter:junit-jupiter:${project.property("junit.version")}")
-                implementation("com.willowtreeapps.assertk:assertk-jvm:${project.property("assertk.version")}")
-                // SLF4J for jDisco logging
-                implementation("org.slf4j:slf4j-simple:1.7.36")
             }
         }
     }
 }
+
+// Uncomment when Android SDK is available:
+// android {
+//     namespace = "cz.hovorka.kdisco.engine"
+//     compileSdk = 34
+//     defaultConfig {
+//         minSdk = 21
+//     }
+// }
 
 publishing {
     repositories {
@@ -58,8 +97,5 @@ publishing {
                 password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.key") as String?
             }
         }
-    }
-    publications.withType<MavenPublication> {
-        artifactId = artifactId.replace("kdisco-core", "kdisco-core-api")
     }
 }

@@ -10,14 +10,14 @@ kotlin {
         }
         testRuns["test"].executionTask.configure {
             maxParallelForks = 1
-            // No forkEvery needed — kdisco-engine has no static state
+            // No forkEvery needed — kdisco-core has no static state
         }
     }
 
     sourceSets {
         val commonMain by getting {
             dependencies {
-                api(project(":kdisco-engine"))
+                api(project(":kdisco-core"))
                 implementation("io.insert-koin:koin-core:${project.property("koin.version")}")
             }
         }
