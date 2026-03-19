@@ -17,7 +17,8 @@ kotlin {
         }
         testRuns["test"].executionTask.configure {
             maxParallelForks = 1
-            // No forkEvery needed — kdisco-core has no static state
+            // No forkEvery needed — kdisco-core avoids shared mutable static state;
+            // simulation state is per-run and cleaned up after each execution
         }
     }
 
