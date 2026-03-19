@@ -20,7 +20,7 @@ kdisco-core (pure-Kotlin KMP engine)
 
 All simulation logic lives in `commonMain`. Platform-specific code is minimal — only the `SimulationContextHolder` (active simulation tracking) and `Random` (seeded random-number generator) differ per target.
 
-### Core Simulation Classes (package `cz.hovorka.kdisco.engine`)
+### Core Simulation Classes (package `cz.hovorka.kdisco`)
 
 | Class        | Purpose |
 |--------------|---------|

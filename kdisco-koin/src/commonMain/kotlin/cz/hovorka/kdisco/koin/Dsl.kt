@@ -1,6 +1,6 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.engine.Simulation
+import cz.hovorka.kdisco.Simulation
 import org.koin.core.module.Module
 
 /**
@@ -10,7 +10,7 @@ import org.koin.core.module.Module
  * torn down after it completes, ensuring clean isolation between runs.
  *
  * The [setup] lambda runs synchronously inside [Simulation.create] where
- * [cz.hovorka.kdisco.engine.Process.activeContext] is set. Use it to activate
+ * [cz.hovorka.kdisco.Process.activeContext] is set. Use it to activate
  * processes and resolve initial dependencies. Do NOT call [Simulation.run]
  * inside [setup] — pass [endTime] instead.
  *

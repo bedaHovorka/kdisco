@@ -80,7 +80,7 @@ kotlin {
 
 // Uncomment when Android SDK is available:
 // android {
-//     namespace = "cz.hovorka.kdisco.engine"
+//     namespace = "cz.hovorka.kdisco"
 //     compileSdk = 34
 //     defaultConfig {
 //         minSdk = 21

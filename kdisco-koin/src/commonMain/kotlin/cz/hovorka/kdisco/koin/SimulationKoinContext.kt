@@ -1,6 +1,6 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.engine.Simulation
+import cz.hovorka.kdisco.Simulation
 import org.koin.core.Koin
 import org.koin.core.KoinApplication
 import org.koin.core.module.Module
