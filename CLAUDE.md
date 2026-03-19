@@ -40,7 +40,7 @@ The `kdisco-koin` module provides dependency injection for simulations using [Ko
 - **`SimulationKoinContext`**: Bridges a Simulation with a dedicated Koin instance
 - **`koinSimulation()`**: Entry point that creates simulation + isolated Koin context
 - **`koinSimulationSweep()`**: Runs multiple simulations with varying parameters
-- **Thread Safety (JVM)**: Uses `InheritableThreadLocal` in `PlatformKoinContext.kt` to propagate Koin context to coroutine threads
+- **Thread Safety (JVM)**: Stores the active Koin context in an `InheritableThreadLocal` in `PlatformKoinContext.kt`, providing per-thread isolation. When using coroutines, the context is bound to the underlying thread and does *not* automatically follow dispatcher/thread switches; ensure a single-threaded dispatcher, or wrap the thread-local with `ThreadLocal.asContextElement(...)` when launching coroutines if you need it to move with coroutine contexts.
 
 **Key principle**: Each simulation run gets a fresh Koin context. Singletons (queues, monitors, stats collectors) are isolated between runs and automatically released when the simulation ends.
 
