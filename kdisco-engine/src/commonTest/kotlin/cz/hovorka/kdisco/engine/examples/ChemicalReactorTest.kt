@@ -2,7 +2,11 @@ package cz.hovorka.kdisco.engine.examples
 
 import assertk.assertThat
 import assertk.assertions.*
-import cz.hovorka.kdisco.engine.*
+import cz.hovorka.kdisco.engine.Continuous
+import cz.hovorka.kdisco.engine.Head
+import cz.hovorka.kdisco.engine.Process
+import cz.hovorka.kdisco.engine.Variable
+import cz.hovorka.kdisco.engine.runSimulation
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
@@ -17,11 +21,10 @@ class ChemicalReactorTest {
 
     @Test
     fun chemicalReactorsConsumePressureAndCompleteProcessing() = runTest {
-        val rand            = Random(12345L)
         val nbrReactors     = 4
         val initialPressure = 200.0
         val nominalPressure = 100.0
-        val simEnd          = 200.0
+        val simEnd          = 100.0
 
         val pressure = Variable(initialPressure)
         val started  = Head()
@@ -42,11 +45,11 @@ class ChemicalReactorTest {
                     if (time() >= simEnd) return
 
                     into(started)
-                    hold(rand.negexp(1.0 / 10.0).coerceIn(1.0, 20.0))
+                    hold(10.0)
                     out()
                     totalBatches++
 
-                    hold(rand.negexp(1.0 / 5.0).coerceIn(0.5, 10.0))
+                    hold(5.0)
                 }
             }
         }

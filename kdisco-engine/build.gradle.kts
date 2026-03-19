@@ -56,6 +56,12 @@ kotlin {
     applyDefaultHierarchyTemplate()
 
     sourceSets {
+        val nonJvmMain by creating {
+            dependsOn(commonMain.get())
+        }
+        jsMain.get().dependsOn(nonJvmMain)
+        nativeMain.get().dependsOn(nonJvmMain)
+
         commonMain {
             dependencies {
                 implementation(kotlin("stdlib"))
