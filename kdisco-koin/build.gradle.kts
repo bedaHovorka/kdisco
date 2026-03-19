@@ -10,7 +10,8 @@ kotlin {
         }
         testRuns["test"].executionTask.configure {
             maxParallelForks = 1
-            // No forkEvery needed — kdisco-core has no static state
+            // No forkEvery needed — simulation state is per-run and cleaned up after each
+            // execution; no cross-test leaking static state requires process isolation
         }
     }
 
