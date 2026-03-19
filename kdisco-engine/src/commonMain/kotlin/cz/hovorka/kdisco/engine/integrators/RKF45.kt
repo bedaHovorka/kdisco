@@ -1,7 +1,6 @@
 package cz.hovorka.kdisco.engine
 
 import kotlin.math.abs
-import kotlin.math.pow
 
 /**
  * Runge-Kutta-Fehlberg 4th/5th-order adaptive integration method.
@@ -198,7 +197,7 @@ internal class RKF45Integrator : Integrator {
 
         // Compute next suggested step size (only when we used the full requested step)
         return if (h == dtFull) {
-            var dtNext = (0.5 * errorRatio).pow(1.0 / 5.0) * h
+            var dtNext = strictPow(0.5 * errorRatio, 1.0 / 5.0) * h
             if (dtNext > context.dtMax) dtNext = context.dtMax
             if (dtNext < context.dtMin) dtNext = context.dtMin
             dtNext
