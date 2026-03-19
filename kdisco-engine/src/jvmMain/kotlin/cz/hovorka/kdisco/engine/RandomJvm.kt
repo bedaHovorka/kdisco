@@ -30,13 +30,20 @@ actual class Random {
 		return mean + stdDev * jRandom.nextGaussian()
 	}
 
+	/** Returns nextDouble(), re-sampling if exactly 0.0 to avoid log(0) = -Infinity. */
+	private fun nextDoubleNonZero(): Double {
+		var d: Double
+		do { d = jRandom.nextDouble() } while (d == 0.0)
+		return d
+	}
+
 	actual fun negexp(a: Double): Double {
 		require(a > 0.0) { "negexp: parameter must be positive, got $a" }
-		return -Math.log(jRandom.nextDouble()) / a
+		return -Math.log(nextDoubleNonZero()) / a
 	}
 
 	actual fun exp(a: Double): Double {
-		return -a * Math.log(jRandom.nextDouble())
+		return -a * Math.log(nextDoubleNonZero())
 	}
 
 	actual fun uniform(a: Double, b: Double): Double {
@@ -49,7 +56,9 @@ actual class Random {
 
 	actual fun randInt(a: Int, b: Int): Int {
 		require(a <= b) { "Lower bound a=$a must be <= upper bound b=$b" }
-		return a + jRandom.nextInt(b - a + 1)
+		val range = b.toLong() - a.toLong() + 1L
+		require(range <= Int.MAX_VALUE) { "Range [$a, $b] too large (size $range exceeds Int.MAX_VALUE)" }
+		return a + jRandom.nextInt(range.toInt())
 	}
 
 	actual fun poisson(a: Double): Int {

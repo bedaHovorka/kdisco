@@ -5,7 +5,7 @@ import kotlin.math.sqrt
 import kotlin.random.Random as KRandom
 
 /**
- * JS/Non-JVM implementation of [Random] using pure Kotlin.
+ * Non-JVM implementation of [Random] using pure Kotlin.
  * Uses the Marsaglia polar method with caching for [normal] to match
  * the JVM's `java.util.Random.nextGaussian()` algorithm.
  */
@@ -48,13 +48,20 @@ actual class Random {
 		return v1 * multiplier
 	}
 
+	/** Returns nextDouble(), re-sampling if exactly 0.0 to avoid log(0) = -Infinity. */
+	private fun nextDoubleNonZero(): Double {
+		var d: Double
+		do { d = rng.nextDouble() } while (d == 0.0)
+		return d
+	}
+
 	actual fun negexp(a: Double): Double {
 		require(a > 0.0) { "negexp: parameter must be positive, got $a" }
-		return -ln(rng.nextDouble()) / a
+		return -ln(nextDoubleNonZero()) / a
 	}
 
 	actual fun exp(a: Double): Double {
-		return -a * ln(rng.nextDouble())
+		return -a * ln(nextDoubleNonZero())
 	}
 
 	actual fun uniform(a: Double, b: Double): Double {
