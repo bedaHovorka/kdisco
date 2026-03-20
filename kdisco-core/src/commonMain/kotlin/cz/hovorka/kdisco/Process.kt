@@ -24,6 +24,12 @@ abstract class Process : Link() {
 
     /**
      * Defines the behavior of this process. Called by the scheduler.
+     *
+     * **Only use kDisco suspension points** ([hold], [passivate], [waitUntil], [terminate])
+     * inside this method. Calling arbitrary suspending functions (e.g.
+     * `kotlinx.coroutines.delay`, `withContext`, `launch`) may resume the coroutine
+     * off-scheduler or on a different thread, breaking simulation time, event ordering,
+     * and `SimulationContext` thread confinement.
      */
     abstract suspend fun actions()
 
