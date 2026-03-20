@@ -2,9 +2,9 @@ name: Gradle CI
 
 on:
   push:
-    branches: [main, develop, 'feature/**', 'fix/**']
+    branches: [main, develop, 'feature/**', 'feat/**', 'fix/**', 'copilot/**']
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'feat/**']
   workflow_dispatch:
   schedule:
     - cron: '0 0 * * 1'
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feat/'))) || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write

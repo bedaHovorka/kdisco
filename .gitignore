@@ -34,5 +34,8 @@ nbdist/
 *.swp
 *~
 
+# Kotlin JS toolchain
+kotlin-js-store/
+
 # Git worktrees
 .worktrees/

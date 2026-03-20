@@ -9,33 +9,42 @@ import org.koin.core.module.Module
  * The Koin context is initialised before the simulation starts and
  * torn down after it completes, ensuring clean isolation between runs.
  *
+ * The [setup] lambda runs synchronously inside [Simulation.create] where
+ * the simulation context is active for [cz.hovorka.kdisco.Process.activate].
+ * Use it to activate processes and resolve initial dependencies.
+ * Do NOT call [Simulation.run] inside [setup] — pass [endTime] instead.
+ *
+ * **Breaking change (0.3.0):** This function is now `suspend`. Call sites must be inside
+ * a coroutine scope — use `runBlocking { }` for top-level usage or `runTest { }` in tests.
+ *
  * ```kotlin
  * val simModule = module {
  *     single { ServiceQueue() }
  *     factory { Customer(get()) }
  * }
  *
- * koinSimulation(simModule) {
+ * koinSimulation(simModule, endTime = 500.0) {
  *     val queue: ServiceQueue by inject()
  *     repeat(10) {
  *         val c: Customer = get()
  *         Process.activate(c, delay = it * 5.0)
  *     }
- *     run(500.0)
  * }
  * ```
  *
  * @param modules one or more Koin [Module]s providing simulation dependencies
- * @param setup   simulation configuration block with Koin-aware receivers
+ * @param endTime simulation end time (default: [Double.MAX_VALUE])
+ * @param setup   simulation configuration block (non-suspend — activations only)
  * @return the completed [Simulation]
  */
-fun koinSimulation(
+suspend fun koinSimulation(
     vararg modules: Module,
+    endTime: Double = Double.MAX_VALUE,
     setup: SimulationKoinContext.() -> Unit
 ): Simulation {
     val ctx = SimulationKoinContext(modules.toList(), setup)
     return try {
-        ctx.execute()
+        ctx.execute(endTime)
     } finally {
         ctx.close()
     }
@@ -43,14 +52,18 @@ fun koinSimulation(
 
 /**
  * Variant that accepts a list of modules.
+ *
+ * **Breaking change (0.3.0):** This function is now `suspend`. Call sites must be inside
+ * a coroutine scope — use `runBlocking { }` for top-level usage or `runTest { }` in tests.
  */
-fun koinSimulation(
+suspend fun koinSimulation(
     modules: List<Module>,
+    endTime: Double = Double.MAX_VALUE,
     setup: SimulationKoinContext.() -> Unit
 ): Simulation {
     val ctx = SimulationKoinContext(modules, setup)
     return try {
-        ctx.execute()
+        ctx.execute(endTime)
     } finally {
         ctx.close()
     }
@@ -60,18 +73,21 @@ fun koinSimulation(
  * Runs multiple simulations (e.g. parameter sweeps) each with a
  * fresh Koin context.
  *
+ * **Breaking change (0.3.0):** This function is now `suspend`. Call sites must be inside
+ * a coroutine scope — use `runBlocking { }` for top-level usage or `runTest { }` in tests.
+ *
  * ```kotlin
- * val results = koinSimulationSweep(simModule, params = listOf(1, 5, 10)) { rate ->
+ * val results = koinSimulationSweep(simModule, params = listOf(1, 5, 10), endTime = 1000.0) { rate ->
  *     val gen: Generator = get { parametersOf(rate) }
  *     Process.activate(gen)
- *     run(1000.0)
  * }
  * ```
  */
-fun <P> koinSimulationSweep(
+suspend fun <P> koinSimulationSweep(
     vararg modules: Module,
     params: Iterable<P>,
+    endTime: Double = Double.MAX_VALUE,
     setup: SimulationKoinContext.(P) -> Unit
 ): List<Simulation> = params.map { param ->
-    koinSimulation(*modules) { setup(param) }
+    koinSimulation(*modules, endTime = endTime) { setup(param) }
 }
