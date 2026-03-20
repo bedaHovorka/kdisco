@@ -11,7 +11,7 @@ package cz.hovorka.kdisco.koin
  *
  * Note: coroutine context elements do NOT automatically carry thread-locals across
  * dispatcher thread switches. If you launch coroutines on a multi-threaded dispatcher
- * inside a simulation, wrap with [ThreadLocal.asContextElement] to propagate the
+ * inside a simulation, wrap with [kotlinx.coroutines.asContextElement] to propagate the
  * context correctly.
  *
  * The context is set by [SimulationKoinContext.execute] before the simulation starts
