@@ -5,7 +5,6 @@ plugins {
 
 allprojects {
     group = "cz.hovorka.kdisco"
-    version = "0.3.0-SNAPSHOT"
 
     repositories {
         mavenCentral()
