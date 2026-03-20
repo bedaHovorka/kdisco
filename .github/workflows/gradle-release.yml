@@ -44,7 +44,7 @@ jobs:
           files: '**/build/libs/*.jar'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: ./gradlew publish -x test
+      - run: ./gradlew publish -x jvmTest -x jsTest
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
