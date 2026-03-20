@@ -277,4 +277,30 @@ class ProcessTest {
         sim.run(10.0)
         assertThat(resumeCount).isEqualTo(1)       // resumed exactly once
     }
+
+    @Test
+    fun reactivateWhileInWaitUntilNoDuplicateScheduling() = runTest {
+        var resumeCount = 0
+        var flag = false
+        val sim = Simulation.create {
+            val waiter = object : Process() {
+                override suspend fun actions() {
+                    waitUntil { flag }
+                    resumeCount++
+                }
+            }
+            Process.activate(waiter)
+            // reactivator explicitly reactivates waiter before the flag is set,
+            // then sets the flag — waiter should execute actions() body exactly once
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    Process.reactivate(waiter)  // reactivate mid-waitUntil; clears stale notice
+                    flag = true                 // condition now true
+                }
+            })
+        }
+        sim.run(10.0)
+        assertThat(resumeCount).isEqualTo(1)       // must not execute twice
+    }
 }

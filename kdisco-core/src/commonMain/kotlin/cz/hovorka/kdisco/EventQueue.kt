@@ -30,6 +30,8 @@ internal class EventQueue {
         events.removeAll { it.process === process }
     }
 
+    fun contains(process: Process): Boolean = events.any { it.process === process }
+
     fun removeFirst(): ScheduledEvent? {
         return if (events.isEmpty()) null else events.removeAt(0)
     }

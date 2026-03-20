@@ -65,7 +65,9 @@ internal class SimulationContext {
             }
         }
         for (notice in satisfied) {
-            eventQueue.schedule(notice.process, currentTime)
+            if (!eventQueue.contains(notice.process)) {
+                eventQueue.schedule(notice.process, currentTime)
+            }
         }
     }
 }

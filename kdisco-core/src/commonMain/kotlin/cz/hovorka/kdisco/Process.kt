@@ -138,6 +138,7 @@ abstract class Process : Link() {
          */
         fun reactivate(process: Process) {
             if (process._terminated) return
+            process.context.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
             process.context.eventQueue.remove(process)   // prevent duplicate if already scheduled
             process.context.eventQueue.schedule(process, process.context.currentTime)
         }
