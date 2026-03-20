@@ -15,7 +15,8 @@ package cz.hovorka.kdisco.koin
  * context correctly.
  *
  * The context is set by [SimulationKoinContext.execute] before the simulation starts
- * and cleared when it completes.
+ * and cleared by [SimulationKoinContext.close], which is called by [koinSimulation] in a
+ * `finally` block after the simulation completes.
  */
 private val threadLocalKoinContext = InheritableThreadLocal<SimulationKoinContext?>()
 
