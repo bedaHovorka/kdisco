@@ -79,7 +79,7 @@ kotlin {
         jvmTest {
             dependencies {
                 implementation(kotlin("test-junit5"))
-                implementation("org.junit.jupiter:junit-jupiter:5.10.2")
+                implementation("org.junit.jupiter:junit-jupiter:${project.property("junit.version")}")
             }
         }
     }
