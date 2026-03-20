@@ -2,9 +2,9 @@ package cz.hovorka.kdisco.koin
 
 import assertk.assertThat
 import assertk.assertions.*
-import cz.hovorka.kdisco.engine.Continuous
-import cz.hovorka.kdisco.engine.Head
-import cz.hovorka.kdisco.engine.Process
+import cz.hovorka.kdisco.Continuous
+import cz.hovorka.kdisco.Head
+import cz.hovorka.kdisco.Process
 import kotlinx.coroutines.test.runTest
 import org.koin.core.parameter.parametersOf
 import org.koin.dsl.module

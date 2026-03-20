@@ -1,16 +1,21 @@
 package cz.hovorka.kdisco.koin
 
 /**
- * JVM-specific: uses a [ThreadLocal] to store the active [SimulationKoinContext].
+ * JVM-specific: uses an [InheritableThreadLocal] to store the active [SimulationKoinContext].
  *
- * jDisco runs each Process in its own Java thread, so the simulation's
- * Koin context must be accessible from any process thread. This override
- * replaces the common `currentKoinContext` property with a thread-local
- * that is inherited by child threads.
+ * The pure-Kotlin coroutine engine runs all simulation logic on a single thread
+ * (cooperative scheduling), so child-thread inheritance is not required by the
+ * engine itself. [InheritableThreadLocal] is used for defensive correctness in
+ * case the caller launches additional threads or coroutines on a multi-threaded
+ * dispatcher from within simulation code.
  *
- * The context is set by [SimulationKoinContext.execute] on the main
- * simulation thread and inherited by process threads via
- * [InheritableThreadLocal].
+ * Note: coroutine context elements do NOT automatically carry thread-locals across
+ * dispatcher thread switches. If you launch coroutines on a multi-threaded dispatcher
+ * inside a simulation, wrap with [kotlinx.coroutines.asContextElement] to propagate the
+ * context correctly.
+ *
+ * The context is set by [SimulationKoinContext.execute] before the simulation starts
+ * and cleared when it completes.
  */
 private val threadLocalKoinContext = InheritableThreadLocal<SimulationKoinContext?>()
 

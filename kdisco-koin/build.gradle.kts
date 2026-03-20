@@ -10,14 +10,15 @@ kotlin {
         }
         testRuns["test"].executionTask.configure {
             maxParallelForks = 1
-            // No forkEvery needed — kdisco-engine has no static state
+            // No forkEvery needed — simulation state is per-run and cleaned up after each
+            // execution; no cross-test leaking static state requires process isolation
         }
     }
 
     sourceSets {
         val commonMain by getting {
             dependencies {
-                api(project(":kdisco-engine"))
+                api(project(":kdisco-core"))
                 implementation("io.insert-koin:koin-core:${project.property("koin.version")}")
             }
         }

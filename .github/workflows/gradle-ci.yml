@@ -2,9 +2,9 @@ name: Gradle CI
 
 on:
   push:
-    branches: [main, develop, 'feature/**', 'fix/**']
+    branches: [main, develop, 'feature/**', 'feat/**', 'fix/**', 'copilot/**']
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, 'feat/**']
   workflow_dispatch:
   schedule:
     - cron: '0 0 * * 1'

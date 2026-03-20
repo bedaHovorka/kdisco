@@ -1,306 +1,174 @@
 package cz.hovorka.kdisco
 
+import kotlinx.coroutines.suspendCancellableCoroutine
+
 /**
- * Base class for discrete-event simulation entities (processes).
- *
- * `Process` represents an active entity in a discrete-event simulation. Each process
- * executes its [actions] method, which defines the process's behavior using simulation
- * primitives like [hold], [passivate], and [terminate].
- *
- * ### Lifecycle
- * 1. **Created**: Process instance is constructed
- * 2. **Activated**: Process is scheduled via [activate] with optional delay
- * 3. **Running**: The [actions] method executes
- * 4. **Suspended**: Process calls [hold] or [passivate] and yields control
- * 5. **Resumed**: After hold duration expires or explicit [reactivate]
- * 6. **Terminated**: Process calls [terminate] or [actions] completes
- *
- * **Note**: The current API does not expose process state queries (e.g., `isActive()`,
- * `isPassivated()`, `isTerminated()`). To debug process lifecycle issues, use logging
- * or debugging breakpoints in [actions]. Future versions may add state query methods.
- *
- * ### Thread Model (JVM)
- * On JVM, each process runs in its own Java thread managed by the jDisco simulation
- * engine. Processes are scheduled cooperatively - they must explicitly call [hold],
- * [passivate], or [terminate] to yield control back to the simulation scheduler.
- *
- * ### Thread Safety and Shared State
- * **IMPORTANT**: On JVM, each process runs in its own thread. If multiple processes access
- * shared data structures (like [Head] or custom objects), you **must** use explicit
- * synchronization (locks, atomic variables, etc.) to prevent race conditions.
- *
- * The [Head] and [Link] classes are **not thread-safe**. If processes share a [Head] (e.g.,
- * a queue), wrap all operations in synchronized blocks:
- *
- * ```kotlin
- * val sharedQueue = Head()
- *
- * class Producer : Process() {
- *     override fun actions() {
- *         val item = Item()
- *         synchronized(sharedQueue) {  // Required!
- *             item.into(sharedQueue)
- *         }
- *     }
- * }
- * ```
- *
- * ### Common Pitfalls
- * **Self-scheduling**: Do not call [activate] on the same process instance from within
- * its own [actions] method, as this causes infinite loops or stack overflow:
- *
- * ```kotlin
- * // WRONG - causes infinite loop
- * override fun actions() {
- *     Process.activate(this, 0.0)  // Don't do this!
- *     hold(1.0)
- * }
- * ```
- *
- * **Shared state**: If multiple processes modify shared state without synchronization,
- * you will encounter race conditions and non-deterministic behavior.
- *
- * ### SIMULA Heritage
- * The process concept is inspired by SIMULA's coroutine-based simulation classes.
- * kDisco wraps the battle-tested jDisco library (used in production since 2007).
- *
- * ### Example
- * ```kotlin
- * class Customer : Process() {
- *     override fun actions() {
- *         println("Customer arrives at t=${time()}")
- *         hold(5.0)  // Wait for service
- *         println("Customer departs at t=${time()}")
- *     }
- * }
- *
- * runSimulation(endTime = 100.0) {
- *     repeat(10) { i ->
- *         Process.activate(Customer(), delay = i * 10.0)
- *     }
- * }
- * ```
- *
- * @see Continuous
- * @see Simulation
- * @see hold
- * @see passivate
- * @since 0.1.0
+ * Thrown by [Process.terminate] to unwind the coroutine call stack.
+ * Uses a custom exception (not CancellationException) to avoid
+ * interfering with kotlinx.coroutines structured concurrency.
  */
-expect abstract class Process() : Link {
+internal class ProcessTerminatedException : Exception()
+
+/**
+ * Base class for discrete-event simulation entities.
+ *
+ * Each process is a Kotlin coroutine scheduled by the simulation engine.
+ * Override [actions] to define process behavior using [hold], [passivate],
+ * and [terminate].
+ */
+abstract class Process : Link() {
+
+    internal lateinit var context: SimulationContext
+    internal var continuation: kotlin.coroutines.Continuation<Unit>? = null
+    internal var _terminated: Boolean = false
+
     /**
-     * Defines the behavior of this process.
+     * Defines the behavior of this process. Called by the scheduler.
      *
-     * This method is called automatically when the process is activated and
-     * becomes the current process. Subclasses must override this method to
-     * implement their simulation logic.
-     *
-     * Use [hold] to suspend for a duration, [passivate] to wait for external
-     * reactivation, or [terminate] to end execution. When this method returns
-     * naturally (without calling [terminate]), the process terminates automatically.
-     *
-     * ### Example
-     * ```kotlin
-     * override fun actions() {
-     *     println("Starting at t=${time()}")
-     *     hold(10.0)
-     *     println("After 10 time units: t=${time()}")
-     *     passivate()  // Wait until someone reactivates us
-     *     println("Reactivated at t=${time()}")
-     * }
-     * ```
+     * **Only use kDisco suspension points** ([hold], [passivate], [waitUntil], [terminate])
+     * inside this method. Calling arbitrary suspending functions (e.g.
+     * `kotlinx.coroutines.delay`, `withContext`, `launch`) may resume the coroutine
+     * off-scheduler or on a different thread, breaking simulation time, event ordering,
+     * and `SimulationContext` thread confinement.
      */
-    protected abstract fun actions()
+    abstract suspend fun actions()
 
     /**
      * Suspends this process for the specified simulation time duration.
-     *
-     * The process will resume execution after [duration] time units have elapsed
-     * in the simulation. During this time, other processes and events can execute.
-     *
-     * @param duration the number of simulation time units to wait (must be non-negative)
-     * @throws IllegalArgumentException if duration is negative
      */
-    fun hold(duration: Double)
+    suspend fun hold(duration: Double) {
+        require(duration >= 0.0) { "Duration must be non-negative, got $duration" }
+        suspendCancellableCoroutine<Unit> { cont ->
+            continuation = cont
+            context.eventQueue.schedule(this, context.currentTime + duration)
+            cont.invokeOnCancellation {
+                continuation = null
+                context.eventQueue.remove(this@Process)
+            }
+        }
+    }
 
     /**
-     * Deactivates this process until explicitly reactivated.
-     *
-     * The process will remain suspended indefinitely until another process or
-     * event calls [reactivate] on it. This is useful for modeling entities that
-     * wait for external signals or resources.
-     *
-     * ### Example
-     * ```kotlin
-     * class Server : Process() {
-     *     private var customer: Customer? = null
-     *
-     *     fun serve(c: Customer) {
-     *         customer = c
-     *         Process.reactivate(c)  // Wake up the customer
-     *     }
-     *
-     *     override fun actions() {
-     *         while (true) {
-     *             passivate()  // Wait for next customer
-     *             hold(serviceTime)  // Serve the customer
-     *         }
-     *     }
-     * }
-     * ```
-     *
-     * @see reactivate
+     * Deactivates this process until explicitly reactivated via [Process.reactivate].
      */
-    fun passivate()
+    suspend fun passivate() {
+        suspendCancellableCoroutine<Unit> { cont ->
+            continuation = cont
+            // Not scheduled in event queue — waits for reactivate()
+            cont.invokeOnCancellation {
+                continuation = null
+            }
+        }
+    }
 
     /**
-     * Terminates this process immediately and permanently.
+     * Suspends this process until [condition] returns true.
      *
-     * After calling this method, the process cannot be reactivated. Any code
-     * following this call in [actions] will not execute.
+     * The condition is checked once immediately — if already true, this returns at once.
+     * Otherwise the process is registered in the wait-notice list. It will be
+     * re-awakened automatically after each discrete event and after each
+     * continuous-integration step.
      *
-     * Marked `open` so that loop-managing subclasses (e.g. `LoopProcess`) can
-     * override it with a graceful loop-exit instead of immediate termination.
+     * The condition may be checked spuriously; [waitUntil] loops until it is confirmed
+     * true before returning.
+     *
+     * Must only be called from within [actions] (i.e., from a running process).
      */
-    open fun terminate()
+    suspend fun waitUntil(condition: Condition) {
+        while (!condition.test()) {
+            suspendCancellableCoroutine<Unit> { cont ->
+                continuation = cont
+                context.waitNotices.add(WaitNotice(this, condition))
+                cont.invokeOnCancellation {
+                    continuation = null
+                    context.waitNotices.removeAll { it.process === this@Process }
+                }
+            }
+        }
+    }
+
+    /** Convenience overload accepting a lambda. */
+    suspend fun waitUntil(condition: () -> Boolean) = waitUntil(Condition(condition))
 
     /**
-     * Returns the current simulation time from this process's perspective.
+     * Terminates this process immediately.
+     * Throws [ProcessTerminatedException] to unwind the coroutine call stack.
      *
-     * This is equivalent to calling `Simulation.current().time()` but more
-     * convenient when writing process logic.
-     *
-     * @return the current simulation clock time
+     * Subclasses may override to implement graceful shutdown (e.g., set a flag and
+     * reactivate to allow the process to complete its current cycle first).
      */
-    fun time(): Double
+    open fun terminate() {
+        _terminated = true
+        context.eventQueue.remove(this)
+        throw ProcessTerminatedException()
+    }
 
-    /**
-     * Activates continuous integration for this process (jDisco compatibility).
-     *
-     * In jDisco, `Process extends Continuous`, so every process can be started/stopped
-     * as a continuous integrator. For pure discrete processes this is a no-op.
-     * Subclasses with continuous state (extending [Continuous]) override this to
-     * start differential-equation integration.
-     *
-     * @return this process (for chaining)
-     */
-    open fun start(): Process
+    /** Returns the current simulation time. */
+    fun time(): Double = context.currentTime
 
-    /**
-     * Deactivates continuous integration for this process (jDisco compatibility).
-     *
-     * Counterpart to [start]. No-op for pure discrete processes.
-     */
-    open fun stop()
-
-    /**
-     * Suspends this process until the specified condition becomes true.
-     *
-     * The process becomes passive until the [condition]'s [Condition.test] method
-     * evaluates to `true`. The condition is checked at each simulation time step
-     * and at state-event detection points.
-     *
-     * ### Example
-     * ```kotlin
-     * // Wait until pressure reaches threshold
-     * waitUntil { pressure.state >= 200 }
-     *
-     * // Or with explicit Condition instance
-     * waitUntil(pressureHigh)
-     * ```
-     *
-     * @param condition the condition to wait for
-     * @see Condition
-     */
-    fun waitUntil(condition: Condition)
-
-    /**
-     * Tests whether this process has completed execution.
-     *
-     * @return `true` if this process has executed all its [actions]; `false` otherwise
-     */
-    fun terminated(): Boolean
+    /** Returns true if this process has completed or been terminated. */
+    fun terminated(): Boolean = _terminated
 
     companion object {
         /**
+         * The currently active simulation context. Set by [Simulation.run] for the
+         * duration of execution. Uses [SimulationContextHolder] for thread-safe
+         * access on JVM (ThreadLocal), allowing multiple simulations to run on
+         * separate threads simultaneously.
+         */
+        @PublishedApi
+        internal var activeContext: SimulationContext?
+            get() = SimulationContextHolder.context
+            set(value) { SimulationContextHolder.context = value }
+
+        /**
          * Schedules a process to begin execution after an optional delay.
-         *
-         * The process will become active at time `currentTime + delay` and its
-         * [actions] method will be invoked.
-         *
-         * ### SIMULA Event Queue Semantics
-         * If [delay] is 0.0 (default), the process is scheduled at the current simulation
-         * time but placed **after** the current process in the event queue (SIMULA semantics).
-         * It will execute when the scheduler processes that event, not immediately.
-         *
-         * @param process the process to activate
-         * @param delay the simulation time delay before activation (default: 0.0)
-         * @throws IllegalArgumentException if delay is negative
          */
-        fun activate(process: Process, delay: Double = 0.0)
+        fun activate(process: Process, delay: Double = 0.0) {
+            require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
+            val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
+            process.context = ctx
+            if (ctx.isRunning) {
+                ctx.eventQueue.schedule(process, ctx.currentTime + delay)
+            } else {
+                ctx.pendingActivations.add(PendingActivation(process, delay))
+            }
+        }
 
         /**
-         * Reactivates a previously passivated process.
+         * Reactivates a previously passivated process at current time.
          *
-         * The process must have called [passivate] previously. It will be scheduled for
-         * resumption at the current simulation time and will resume execution after the
-         * statement where it called [passivate] when the scheduler processes the
-         * reactivation event.
-         *
-         * @param process the process to reactivate (must be in passivated state)
-         * @throws IllegalStateException if the process is not passivated
+         * No-op if [process] is already terminated.
+         * If [process] is already in the event queue (e.g. mid-[hold]), it is
+         * rescheduled at the current time (no duplicate event is created).
          */
-        fun reactivate(process: Process)
+        fun reactivate(process: Process) {
+            if (process._terminated) return
+            process.context.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
+            process.context.eventQueue.remove(process)   // prevent duplicate if already scheduled
+            process.context.eventQueue.schedule(process, process.context.currentTime)
+        }
 
         /**
-         * Causes the currently active process to wait in a queue.
-         *
-         * The currently active process is added to the [queue] two-way list and then
-         * [passivate]d. Equivalent to `this.into(queue); passivate()`.
-         *
-         * @param queue the Head list to join while waiting
+         * Current process joins [queue] and passivates.
          */
-        fun wait(queue: Head)
+        suspend fun wait(queue: Head) {
+            val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
+            val current = ctx.currentProcess as? Process
+                ?: throw DiscoException("No current process")
+            current.into(queue)
+            current.passivate()
+        }
 
-        /**
-         * Returns the current simulation time.
-         *
-         * This companion version is equivalent to calling [time] on the current process.
-         * Useful when calling from non-process context or when the process instance
-         * is not directly available.
-         *
-         * @return the current simulation clock time
-         */
-        fun time(): Double
-
-        /**
-         * The minimum allowable integration step-size.
-         *
-         * Controls the accuracy of state-event detection via [waitUntil].
-         * Smaller values increase accuracy but may slow continuous simulation.
-         * Default: 1e-5.
-         */
-        var dtMin: Double
-
-        /**
-         * The maximum allowable integration step-size.
-         *
-         * Controls the maximum time step during continuous simulation phases.
-         * Larger values speed up simulation but may reduce accuracy.
-         * Default: 1.0.
-         */
-        var dtMax: Double
-
-        /**
-         * The upper bound for the absolute integration error.
-         * Default: 1e-5.
-         */
-        var maxAbsError: Double
-
-        /**
-         * The upper bound for the relative integration error.
-         * Default: 1e-5.
-         */
-        var maxRelError: Double
+        /** Returns the current simulation time. */
+        fun time(): Double {
+            val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
+            return ctx.currentTime
+        }
     }
 }
+
+internal class PendingActivation(
+    val process: Process,
+    val delay: Double
+)

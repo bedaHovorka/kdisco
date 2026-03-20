@@ -1,48 +1,51 @@
 package cz.hovorka.kdisco
 
+import kotlin.random.Random as KRandom
+
 /**
- * A random number generator with statistical distribution sampling methods.
+ * Random number generator with statistical distribution sampling methods.
  *
- * Extends the platform's base random number generator with methods for common
- * probability distributions used in discrete-event simulation.
+ * On JVM, delegates to `java.util.Random` to ensure identical random sequences
+ * as jDisco's `Random` class (which extends `java.util.Random`). The `normal()`
+ * method uses `nextGaussian()` (Marsaglia polar method with caching), and `exp()`
+ * and `negexp()` use the same formulas as jDisco.
  *
- * ### Example
- * ```kotlin
- * val rng = Random(42L)  // Seeded for reproducibility
- * val serviceTime = rng.negexp(0.5)  // Exponential with mean 2.0
- * val arrivalDelay = rng.normal(10.0, 2.0)  // Normal distribution
- * ```
+ * On other platforms, uses a pure-Kotlin implementation with algorithm parity.
  *
- * @since 0.2.0
+ * Use [Random(seed)] for reproducible simulations. Use [Random()] for
+ * non-deterministic runs.
  */
 expect class Random {
-    /** Creates a Random instance seeded with current time. */
-    constructor()
+	constructor()
+	constructor(seed: Long)
 
-    /** Creates a Random instance with the given seed for reproducible results. */
-    constructor(seed: Long)
+	/**
+	 * Returns the underlying [kotlin.random.Random] instance.
+	 * Useful for operations like `MutableList.shuffle(random.asKotlinRandom())`.
+	 */
+	fun asKotlinRandom(): KRandom
 
-    /** Returns a normally distributed double with given mean and standard deviation. */
-    fun normal(a: Double, b: Double): Double
+	/** Normally distributed double with given [mean] and standard deviation [stdDev]. */
+	fun normal(mean: Double, stdDev: Double): Double
 
-    /** Returns a double from the negative exponential distribution with mean 1/a. */
-    fun negexp(a: Double): Double
+	/** Negative exponential distribution with mean 1/[a]. */
+	fun negexp(a: Double): Double
 
-    /** Returns a double from the exponential distribution with mean a. */
-    fun exp(a: Double): Double
+	/** Exponential distribution with mean [a]. */
+	fun exp(a: Double): Double
 
-    /** Returns a double uniformly distributed in [a, b). */
-    fun uniform(a: Double, b: Double): Double
+	/** Uniformly distributed double in [[a], [b]). */
+	fun uniform(a: Double, b: Double): Double
 
-    /** Returns true with probability a. */
-    fun draw(a: Double): Boolean
+	/** Returns true with probability [a]. */
+	fun draw(a: Double): Boolean
 
-    /** Returns a uniformly distributed integer in [a, b]. */
-    fun randInt(a: Int, b: Int): Int
+	/** Uniformly distributed integer in [[a], [b]] (inclusive). */
+	fun randInt(a: Int, b: Int): Int
 
-    /** Returns an integer from the Poisson distribution with mean a. */
-    fun poisson(a: Double): Int
+	/** Poisson distributed integer with mean [a]. */
+	fun poisson(a: Double): Int
 
-    /** Returns a double from the Erlang distribution. */
-    fun erlang(a: Double, b: Double): Double
+	/** Erlang distributed double with shape [b] and mean [a]*[b]. */
+	fun erlang(a: Double, b: Double): Double
 }

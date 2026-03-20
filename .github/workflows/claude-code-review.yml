@@ -17,7 +17,8 @@ concurrency:
 jobs:
   claude-review:
     # Skip PRs from forks: secrets are not available to fork-originated workflows
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Skip bot-authored PRs: GitHub's permissions API doesn't support bot accounts
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.type != 'Bot'
 
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -4,49 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**kDisco** is a Kotlin Multiplatform API for combined discrete-event and continuous simulation that provides a Kotlin-idiomatic wrapper around [jDisco](https://github.com/bedaHovorka/jdisco), a Java simulation library based on SIMULA concepts.
-
-### Recent Updates (2026-02-08)
-
-kDisco has undergone a comprehensive expert review and bug fix cycle, resolving **27 critical and high-priority issues**:
-
-- ✅ **4 Critical bugs fixed**: Process lifecycle (terminate/reactivate), Variable lifecycle methods, Link memory leak
-- ✅ **5 High-priority safety improvements**: Input validation for all time/duration parameters
-- ✅ **18 Documentation enhancements**: Thread safety warnings, integration details, event detection patterns
-- ✅ **Code compiles successfully** with comprehensive test coverage added
-
-**Status**: Core discrete-event simulation is production-ready. Continuous simulation features are functional and validated (see [FIXES_IMPLEMENTED.md](FIXES_IMPLEMENTED.md) for full details).
-
-**Key improvements**:
-- Proper 1:1 API mapping with jDisco maintained throughout
-- Thread safety documentation added (critical for JVM multi-threaded processes)
-- Continuous integration workflow now properly documented with Variable.start()/stop()
-- Input validation prevents silent failures with clear error messages
+**kDisco** is a pure-Kotlin Multiplatform discrete-event and continuous simulation engine, implemented using Kotlin coroutines. It supports JVM, JS, and Native targets with no external runtime dependencies.
 
 ## Architecture
 
 ### Multiplatform Structure
 
 ```
-commonMain (expect classes) → Kotlin DSL extensions
-     ↓
-jvmMain (actual classes) → delegates to jDisco 1.2.0
+kdisco-core (pure-Kotlin KMP engine)
+    ├── commonMain  — simulation engine (Process, Continuous, Variable, Head, Link, …)
+    ├── jvmMain     — JVM-specific: ThreadLocal SimulationContextHolder, java.util.Random
+    ├── jsMain      — JS-specific: global-var context holder, kotlin.math
+    └── nativeMain  — Native-specific: global-var context holder, kotlin.math
 ```
 
-All `actual` implementations on JVM are thin wrappers that delegate to the corresponding `jdisco.*` class. This preserves the battle-tested jDisco simulation engine while providing Kotlin-friendly APIs.
+All simulation logic lives in `commonMain`. Platform-specific code is minimal — only the `SimulationContextHolder` (active simulation tracking) and `Random` (seeded random-number generator) differ per target.
 
-Future targets (JS/Native/Wasm) will use pure-Kotlin implementations of the simulation engine.
+### Core Simulation Classes (package `cz.hovorka.kdisco`)
 
-### Core Simulation Classes
-
-| kDisco class   | jDisco delegate       | Purpose |
-|----------------|-----------------------|---------|
-| `Link`         | `jdisco.Link`         | Linked-list membership base class |
-| `Head`         | `jdisco.Head`         | Doubly-linked circular list container |
-| `Process`      | `jdisco.Process`      | Discrete process with instantaneous events |
-| `Continuous`   | `jdisco.Continuous`   | Continuous process with time-interval phases |
-| `Variable`     | `jdisco.Variable`     | Piecewise-continuous state variable |
-| `Simulation`   | `jdisco.Simulation`   | Simulation control and clock |
+| Class        | Purpose |
+|--------------|---------|
+| `Process`    | Discrete process with suspend-based actions |
+| `Continuous` | Continuous process with time-interval phases |
+| `Variable`   | Piecewise-continuous state variable with ODE integration |
+| `Head`       | Doubly-linked circular list container |
+| `Link`       | Linked-list membership base class |
+| `Simulation` | Simulation control and clock |
+| `EventQueue` | Priority queue of scheduled notices |
 
 ### Koin Integration Module (`kdisco-koin`)
 
@@ -56,7 +40,7 @@ The `kdisco-koin` module provides dependency injection for simulations using [Ko
 - **`SimulationKoinContext`**: Bridges a Simulation with a dedicated Koin instance
 - **`koinSimulation()`**: Entry point that creates simulation + isolated Koin context
 - **`koinSimulationSweep()`**: Runs multiple simulations with varying parameters
-- **Thread Safety (JVM)**: Uses `InheritableThreadLocal` in `PlatformKoinContext.kt` to propagate Koin context to jDisco process threads (jDisco runs each process in its own Java thread)
+- **Thread Safety (JVM)**: Stores the active Koin context in an `InheritableThreadLocal` in `PlatformKoinContext.kt`, providing per-thread isolation. When using coroutines, the context is bound to the underlying thread and does *not* automatically follow dispatcher/thread switches; ensure a single-threaded dispatcher, or wrap the thread-local with `ThreadLocal.asContextElement(...)` when launching coroutines if you need it to move with coroutine contexts.
 
 **Key principle**: Each simulation run gets a fresh Koin context. Singletons (queues, monitors, stats collectors) are isolated between runs and automatically released when the simulation ends.
 
@@ -64,12 +48,14 @@ The `kdisco-koin` module provides dependency injection for simulations using [Ko
 
 ```
 kdisco/
-├── kdisco-core/                   # Core multiplatform simulation API
-│   ├── libs/jdisco-1.2.0.jar     # JVM dependency (or use local Maven)
+├── kdisco-core/                   # Pure-Kotlin KMP simulation engine
 │   └── src/
-│       ├── commonMain/            # expect classes + Kotlin DSL
-│       ├── jvmMain/               # actual impls → jDisco delegation
-│       └── jvmTest/
+│       ├── commonMain/            # Simulation engine (all platforms)
+│       ├── commonTest/            # Platform-independent tests + examples
+│       ├── jvmMain/               # JVM-specific: ThreadLocal, java.util.Random
+│       ├── jsMain/                # JS-specific: context holder, math
+│       ├── nativeMain/            # Native-specific: context holder, math
+│       └── nonJvmMain/            # Shared non-JVM source (JS + Native)
 └── kdisco-koin/                   # Koin DI integration module
     └── src/
         ├── commonMain/            # DI-aware Process/Continuous, koinSimulation DSL
@@ -96,23 +82,15 @@ kdisco/
 ./gradlew test
 
 # Run tests for specific module
+./gradlew :kdisco-core:jvmTest
 ./gradlew :kdisco-koin:test
 ```
 
-### Dependencies
-
-The `jdisco-1.2.0.jar` must be available:
-- **Option 1**: Place JAR in `kdisco-core/libs/`
-- **Option 2**: Publish jDisco to local Maven and update `kdisco-core/build.gradle.kts`
-
 ## Development Notes
 
-### expect/actual Pattern
+### Coroutine-based Simulation Engine
 
-All core simulation classes use Kotlin Multiplatform's `expect`/`actual` mechanism:
-- `commonMain` declares `expect` classes with the public API
-- `jvmMain` provides `actual` implementations that delegate to jDisco
-- Extensions and DSL helpers live in `commonMain` (platform-agnostic)
+Each `Process` runs in its own coroutine. The scheduler (`SimulationContext`) uses `suspendCoroutine` / `resumeWith` to implement discrete events such as `hold`, `passivate`, and `waitUntil`. Continuous processes use the RKF45 integrator for state variable ODEs.
 
 ### Koin Context Lifecycle
 

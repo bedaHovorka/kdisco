@@ -1,170 +1,195 @@
 package cz.hovorka.kdisco
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
 /**
  * Manages the simulation clock, event scheduling, and execution control.
- *
- * `Simulation` is the central coordinator for a discrete-event or continuous
- * simulation. It maintains the simulation clock, schedules process activations,
- * and executes the simulation until a specified end time or explicit [stop] call.
- *
- * ### Simulation Context
- * Each simulation maintains its own independent context:
- * - Simulation clock starting at time 0.0
- * - Event queue for scheduled process activations
- * - Set of active processes
- *
- * On JVM, simulations are thread-local - each thread can have its own independent
- * simulation running concurrently.
- *
- * ### Typical Usage
- * Use the [simulation] or [runSimulation] DSL functions instead of calling
- * [create] directly:
- *
- * ```kotlin
- * runSimulation(endTime = 100.0) {
- *     // 'this' is the Simulation instance
- *     Process.activate(MyProcess())
- * }
- * ```
- *
- * ### JVM Implementation
- * On JVM, kDisco wraps the battle-tested jDisco library (used in production
- * since 2007). The jDisco engine uses:
- * - Priority queue for efficient event scheduling
- * - Java threads for process execution (one thread per process)
- * - Runge-Kutta integration for continuous simulation
- *
- * ### Example: Simple Discrete Simulation
- * ```kotlin
- * class Customer : Process() {
- *     override fun actions() {
- *         println("Arrival at t=${time()}")
- *         hold(5.0)
- *         println("Departure at t=${time()}")
- *     }
- * }
- *
- * val sim = simulation {
- *     repeat(3) { i ->
- *         Process.activate(Customer(), delay = i * 10.0)
- *     }
- * }
- * sim.run(endTime = 100.0)
- * ```
- *
- * ### Example: Controlled Execution
- * ```kotlin
- * class Monitor : Process() {
- *     override fun actions() {
- *         while (time() < 50.0) {
- *             hold(10.0)
- *             println("Checkpoint at t=${time()}")
- *         }
- *         simulation().stop()  // Stop simulation early
- *     }
- * }
- *
- * runSimulation(endTime = 100.0) {
- *     Process.activate(Monitor())
- * }
- * // Will stop at t=50.0, not 100.0
- * ```
- *
- * @see simulation
- * @see runSimulation
- * @see Process
- * @since 0.1.0
  */
-expect class Simulation() {
-    /**
-     * Executes the simulation until the specified end time or [stop] is called.
-     *
-     * The simulation processes events in chronological order, activating processes
-     * as their scheduled times arrive. If a process calls [stop], execution halts
-     * immediately even if [endTime] has not been reached.
-     *
-     * ### Execution Flow
-     * 1. Initialize simulation clock to 0.0
-     * 2. Process events from the event queue in time order
-     * 3. For each event, activate the corresponding process
-     * 4. Continue until time reaches [endTime] or [stop] is called
-     * 5. Return when no more events or simulation stopped
-     *
-     * ### Time Progression
-     * The simulation clock advances in discrete jumps from one event time to the next.
-     * For continuous processes, state variables are integrated smoothly during [Process.hold],
-     * with the simulation clock jumping discretely to the end of the hold duration.
-     * Intermediate integration steps (t + Δt, t + Δt/2) are internal to the Runge-Kutta
-     * algorithm and do not affect the simulation clock.
-     *
-     * @param endTime the simulation time at which to stop execution
-     * @throws IllegalArgumentException if endTime is negative
-     */
-    fun run(endTime: Double)
+class Simulation internal constructor() {
+    internal val context = SimulationContext()
+    private var _hasRun = false
+
+    // --- Continuous integration parameters ---
+
+    /** Minimum integration step size. Must be > 0 and <= [dtMax]. */
+    var dtMin: Double
+        get() = context.dtMin
+        set(value) {
+            require(value > 0.0) { "dtMin must be positive, got $value" }
+            require(value <= context.dtMax) { "dtMin ($value) must be <= dtMax (${context.dtMax})" }
+            context.dtMin = value
+        }
+
+    /** Maximum integration step size. Must be >= [dtMin]. */
+    var dtMax: Double
+        get() = context.dtMax
+        set(value) {
+            require(value > 0.0) { "dtMax must be positive, got $value" }
+            require(value >= context.dtMin) { "dtMax ($value) must be >= dtMin (${context.dtMin})" }
+            context.dtMax = value
+        }
+
+    /** Maximum absolute integration error per step (used by RKF45). Must be non-negative. */
+    var maxAbsError: Double
+        get() = context.maxAbsError
+        set(value) {
+            require(value >= 0.0) { "maxAbsError must be non-negative, got $value" }
+            context.maxAbsError = value
+        }
+
+    /** Maximum relative integration error per step (used by RKF45). Must be non-negative. */
+    var maxRelError: Double
+        get() = context.maxRelError
+        set(value) {
+            require(value >= 0.0) { "maxRelError must be non-negative, got $value" }
+            context.maxRelError = value
+        }
+
+    /** The numerical integrator used for continuous variable integration. Defaults to [RKF45Integrator]. */
+    internal var integrator: Integrator
+        get() = context.monitor.integrator
+        set(value) { context.monitor.integrator = value }
 
     /**
-     * Returns the current simulation clock time.
+     * Executes the simulation until [endTime] or [stop] is called.
      *
-     * The simulation clock starts at 0.0 and advances as events are processed.
-     * This method returns the current time from the simulation's perspective.
+     * Process coroutines are launched into a dedicated [CoroutineScope] that is
+     * independent of the caller's scope. This prevents [kotlinx.coroutines.test.runTest]
+     * from waiting on suspended process coroutines after the simulation ends.
      *
-     * Processes should typically use [Process.time] instead, which is more
-     * convenient.
+     * [Dispatchers.Unconfined] ensures coroutines start and resume synchronously on
+     * the calling thread, giving deterministic single-threaded execution.
      *
-     * @return the current simulation time (non-negative)
-     * @see Process.time
+     * When active [Continuous] processes are present, the [ContinuousMonitor] integrates
+     * all active [Variable]s up to the time of the next discrete event before processing it.
      */
-    fun time(): Double
+    suspend fun run(endTime: Double) {
+        check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
+        _hasRun = true
+        require(endTime >= 0.0) { "End time must be non-negative, got $endTime" }
 
-    /**
-     * Stops the simulation immediately.
-     *
-     * This halts simulation execution, even if the end time specified in [run]
-     * has not been reached. Any processes currently in [Process.hold] or
-     * [Process.passivate] will not resume.
-     *
-     * ### Thread Safety
-     * This method can be called from process threads (on JVM). The implementation
-     * uses @Volatile to ensure visibility of the stop request across threads.
-     * However, there may be a delay before the simulation actually stops if a
-     * process is already executing in [Process.hold].
-     *
-     * ### State Consistency
-     * Variables may be left in intermediate states if stopped mid-integration
-     * during a continuous [Process.hold]. The simulation cannot be restarted
-     * after being stopped - create a new [Simulation] instance for subsequent runs.
-     *
-     * ### Example: Conditional Termination
-     * ```kotlin
-     * class QualityCheck : Process() {
-     *     override fun actions() {
-     *         hold(10.0)
-     *         if (defectCount > threshold) {
-     *             println("Quality failure at t=${time()}")
-     *             simulation().stop()
-     *         }
-     *     }
-     * }
-     * ```
-     */
-    fun stop()
+        val previousContext = Process.activeContext
+        Process.activeContext = context
+        context.isRunning = true
+        context.stopRequested = false
+
+        // Dedicated scope for process coroutines — NOT a child of the caller's scope.
+        // SupervisorJob so one process failure doesn't cancel others.
+        val simJob = SupervisorJob()
+        val simScope = CoroutineScope(Dispatchers.Unconfined + simJob)
+
+        try {
+            // Move pending activations into the event queue
+            val activations = context.pendingActivations.toList()
+            context.pendingActivations.clear()
+            for (pending in activations) {
+                context.eventQueue.schedule(pending.process, pending.delay)
+            }
+
+            // Main scheduler loop.
+            // Dispatchers.Unconfined guarantees: launch{} and resumeWith() both run the
+            // process synchronously on this thread until the process suspends
+            // (hold/passivate) or terminates, then control returns here for the next event.
+            while (!context.stopRequested) {
+                currentCoroutineContext().ensureActive()
+
+                // Peek at the next event without removing it yet.
+                val next = context.eventQueue.peek()
+
+                // Determine integration boundary: next event or endTime if queue is empty.
+                // When the queue is empty but continuous processes are still active, we must
+                // integrate all the way to endTime rather than exiting the loop immediately.
+                val integrateTo = if (next != null) minOf(next.time, endTime) else endTime
+
+                // Integrate continuous processes up to the next event boundary (or endTime).
+                if (context.firstCont != null) {
+                    context.monitor.integrateUntil(integrateTo)
+                }
+
+                // If no more discrete events: check if integrateUntil added events via
+                // checkWaitNotices (e.g. a waitUntil condition became true). If so,
+                // loop back to process them; otherwise we are truly done.
+                if (next == null) {
+                    if (!context.eventQueue.isEmpty()) continue
+                    break
+                }
+
+                // Now pop and process the event.
+                val event = context.eventQueue.removeFirst() ?: break
+                if (event.time > endTime) break
+
+                context.currentTime = event.time
+                val process = event.process
+                context.currentProcess = process
+
+                val cont = process.continuation
+                if (cont != null) {
+                    // Resume existing coroutine (returning from hold/passivate)
+                    process.continuation = null
+                    cont.resumeWith(Result.success(Unit))
+                } else {
+                    // First activation — launch new coroutine for process.actions().
+                    // Guard against re-launching if the process was terminated and then
+                    // erroneously rescheduled (e.g. by a reactivate() call that predates
+                    // this guard being in place).
+                    if (!process._terminated) {
+                        simScope.launch {
+                            try {
+                                process.actions()
+                            } catch (_: ProcessTerminatedException) {
+                                // Process called terminate() — expected, not an error
+                            } finally {
+                                process._terminated = true
+                            }
+                        }
+                    }
+                    // With Unconfined, the launched coroutine runs synchronously until
+                    // the process calls hold()/passivate()/terminate(), then control
+                    // returns here for the next event.
+                }
+                context.checkWaitNotices()
+            }
+        } finally {
+            context.isRunning = false
+            Process.activeContext = previousContext
+            // Cancel any remaining suspended coroutines (passivated processes that
+            // were never reactivated, or processes whose hold() time is past endTime).
+            simScope.cancel()
+            withContext(NonCancellable) { simJob.join() }
+        }
+    }
+
+    /** Returns the current simulation clock time. */
+    fun time(): Double = context.currentTime
+
+    /** Requests the simulation to stop after the current event. */
+    fun stop() {
+        context.stopRequested = true
+    }
 
     companion object {
         /**
-         * Creates and initializes a new simulation.
-         *
-         * The [setup] lambda receives the new simulation as its receiver,
-         * allowing you to configure the simulation before running it.
-         *
-         * ### Note
-         * Prefer using [simulation] or [runSimulation] DSL functions instead
-         * of calling this directly.
-         *
-         * @param setup configuration block executed with the new simulation as receiver
-         * @return the newly created and configured simulation
-         * @see simulation
-         * @see runSimulation
+         * Creates a new [Simulation] and runs [setup] with it as the receiver.
+         * Processes activated during [setup] are queued for execution when [run] is called.
          */
-        fun create(setup: Simulation.() -> Unit): Simulation
+        fun create(setup: Simulation.() -> Unit): Simulation {
+            val simulation = Simulation()
+            val previousContext = Process.activeContext
+            Process.activeContext = simulation.context
+            try {
+                simulation.setup()
+            } finally {
+                Process.activeContext = previousContext
+            }
+            return simulation
+        }
     }
 }

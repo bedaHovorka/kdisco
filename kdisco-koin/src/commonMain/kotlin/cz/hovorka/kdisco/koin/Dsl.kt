@@ -1,6 +1,6 @@
 package cz.hovorka.kdisco.koin
 
-import cz.hovorka.kdisco.engine.Simulation
+import cz.hovorka.kdisco.Simulation
 import org.koin.core.module.Module
 
 /**
@@ -10,9 +10,9 @@ import org.koin.core.module.Module
  * torn down after it completes, ensuring clean isolation between runs.
  *
  * The [setup] lambda runs synchronously inside [Simulation.create] where
- * [cz.hovorka.kdisco.engine.Process.activeContext] is set. Use it to activate
- * processes and resolve initial dependencies. Do NOT call [Simulation.run]
- * inside [setup] — pass [endTime] instead.
+ * the simulation context is active for [cz.hovorka.kdisco.Process.activate].
+ * Use it to activate processes and resolve initial dependencies.
+ * Do NOT call [Simulation.run] inside [setup] — pass [endTime] instead.
  *
  * **Breaking change (0.3.0):** This function is now `suspend`. Call sites must be inside
  * a coroutine scope — use `runBlocking { }` for top-level usage or `runTest { }` in tests.

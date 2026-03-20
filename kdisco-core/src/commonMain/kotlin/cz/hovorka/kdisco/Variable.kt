@@ -1,133 +1,116 @@
 package cz.hovorka.kdisco
 
 /**
- * Represents a piecewise-continuous state variable in a continuous simulation.
+ * Represents a state variable that varies continuously between discrete events
+ * according to ordinary first-order differential equations.
  *
- * `Variable` is used in [Continuous] processes to track state that evolves
- * continuously over time according to differential equations. The variable
- * maintains both its current [state] (value) and its [rate] of change (derivative).
+ * The differential equations are expressed in subclasses of [Continuous] via
+ * their [Continuous.derivatives] method.
  *
- * ### Integration Flow
- * 1. In [Continuous.derivatives], set [rate] to define dx/dt
- * 2. During [Process.hold], the [Continuous.derivatives] method is called **50-500+ times**
- *    as part of the integration algorithm, which updates [state] based on [rate]
- * 3. In [Process.actions], read [state] to access the integrated value
- *
- * ### Discrete Changes
- * While [state] evolves continuously during [Process.hold] calls, it can also
- * change discretely in [Process.actions]. This enables hybrid discrete-continuous
- * simulation (e.g., a bouncing ball where velocity reverses instantaneously on impact).
- *
- * ### Example: Exponential Decay
- * ```kotlin
- * class RadioactiveDecay : Continuous() {
- *     val atoms = Variable(1000.0)  // Initial count
- *     val lambda = 0.1  // Decay constant
- *
- *     override fun derivatives() {
- *         atoms.rate = -lambda * atoms.state  // dN/dt = -λN
- *     }
- *
- *     override fun actions() {
- *         println("t=0: ${atoms.state} atoms")
- *         hold(10.0)
- *         println("t=10: ${atoms.state} atoms")  // ≈ 368 atoms
- *     }
- * }
- * ```
- *
- * ### Example: Position and Velocity
- * ```kotlin
- * class FallingObject : Continuous() {
- *     val position = Variable(100.0)  // meters
- *     val velocity = Variable(0.0)    // m/s
- *     val gravity = -9.81             // m/s²
- *
- *     override fun derivatives() {
- *         position.rate = velocity.state  // dx/dt = v
- *         velocity.rate = gravity         // dv/dt = g
- *     }
- *
- *     override fun actions() {
- *         while (position.state > 0.0) {
- *             hold(0.1)  // Integrate for 0.1 seconds
- *             println("t=${time()}: h=${position.state}m, v=${velocity.state}m/s")
- *         }
- *         // Discrete event: hit ground
- *         position.state = 0.0
- *         velocity.state = 0.0
- *     }
- * }
- * ```
- *
- * @param initialValue the starting value for [state]
+ * @param initialState the initial value of the variable.
  * @see Continuous
- * @see Continuous.derivatives
- * @since 0.1.0
  */
-expect class Variable(initialValue: Double) {
-    /**
-     * The current value of this variable.
-     *
-     * During [Process.hold] in a [Continuous] process, this is automatically
-     * updated by the numerical integration algorithm based on [rate].
-     *
-     * Can be read at any time and can be modified discretely in [Process.actions]
-     * to model instantaneous state changes (jumps).
-     */
-    var state: Double
+class Variable(initialState: Double = 0.0) : Link() {
+
+    /** The current value of the variable. */
+    var state: Double = initialState
+
+    /** The derivative with respect to time. Reset to 0.0 at the start of each integration step. */
+    var rate: Double = 0.0
+
+    /** The value of [state] at the start of the current integration step. */
+    val oldState: Double get() = _oldState
+
+    internal var _oldState: Double = initialState
+
+    // Runge-Kutta stage coefficients
+    internal var k1: Double = 0.0
+    internal var k2: Double = 0.0
+    internal var k3: Double = 0.0
+    internal var k4: Double = 0.0
+    internal var k5: Double = 0.0
+    internal var k6: Double = 0.0
+
+    // 5th-order step accumulator (used by RKF45)
+    internal var ds: Double = 0.0
+
+    // Intrusive linked list for the active-variable list in SimulationContext.
+    // Separate from Link.predRef / sucRef which are used for Head-list membership.
+    // Mirrors jDisco's Variable.pred / Variable.suc.
+    // When first in the list: _pred == this.
+    // When not in any list: _pred == null && _suc == null.
+    internal var _pred: Variable? = null
+    internal var _suc: Variable? = null
 
     /**
-     * The current rate of change (derivative) of this variable.
-     *
-     * Set this in [Continuous.derivatives] to define dx/dt. The integration
-     * algorithm uses this value to compute how [state] changes during [Process.hold].
-     *
-     * ### Important
-     * - Set [rate] in [Continuous.derivatives], not in [Process.actions]
-     * - Express [rate] as a function of current [state] values
-     * - Units: [state units] per [time unit]
-     * - **CRITICAL**: Ensure dimensional consistency between [state], [rate], and
-     *   [Process.hold] duration. For example:
-     *   - If [state] is in meters and time in seconds, [rate] must be m/s
-     *   - Mixing units (e.g., meters + milliseconds) causes silently incorrect results
-     *
-     * ### Example
-     * ```kotlin
-     * val temperature = Variable(100.0)  // Celsius
-     * val ambientTemp = 20.0
-     * val coolingRate = 0.05  // 1/seconds
-     *
-     * override fun derivatives() {
-     *     // Newton's law of cooling: dT/dt = -k(T - T_ambient)
-     *     temperature.rate = -coolingRate * (temperature.state - ambientTemp)
-     * }
-     * ```
+     * Returns true if this variable is currently in the active-variable list.
      */
-    var rate: Double
+    fun isActive(): Boolean = _pred != null
 
     /**
-     * Starts continuous integration for this variable.
-     *
-     * Must be called before the variable can be used in continuous processes.
-     * Typically called at the beginning of [Continuous.actions] before any [Process.hold] calls.
-     *
-     * @return this Variable for method chaining
+     * Returns the value of [state] at the start of the current integration step.
+     * Equivalent to [oldState]. Intended for difference-equation descriptions.
      */
-    fun start(): Variable
+    fun lastState(): Double = _oldState
 
     /**
-     * Stops continuous integration for this variable.
+     * Inserts this variable into the active-variable list maintained by the simulation.
      *
-     * Should be called when the variable is no longer needed in continuous integration,
-     * typically at the end of [Continuous.actions].
+     * Calling [start] when already active has no effect.
+     * If called outside an active simulation context, this is a no-op.
+     * Must only be called from a discrete process (not during integration).
+     *
+     * @return this (for chaining: `Variable(0.0).start()`)
+     * @throws DiscoException if called during integration.
      */
-    fun stop()
+    fun start(): Variable {
+        val ctx = Process.activeContext ?: return this  // no-op outside simulation (matches jDisco behaviour)
+        if (ctx.monitorActive) throw DiscoException("Illegal call of start (class Variable)")
+        if (_pred == null) {
+            val first = ctx.firstVar
+            if (first == null) {
+                // Only element: _pred points to self (sentinel pattern from jDisco)
+                ctx.firstVar = this
+                _pred = this
+            } else {
+                // Insert at head of list
+                _suc = first
+                _pred = this
+                first._pred = this
+                ctx.firstVar = this
+            }
+        }
+        return this
+    }
 
     /**
-     * Checks if this variable is currently active in continuous integration.
+     * Removes this variable from the active-variable list.
      *
-     * @return true if variable is active, false otherwise
+     * Calling [stop] when not active has no effect.
+     * If called outside an active simulation context, this is a no-op.
+     * Must only be called from a discrete process (not during integration).
+     *
+     * @throws DiscoException if called during integration.
      */
-    fun isActive(): Boolean
+    fun stop() {
+        val ctx = Process.activeContext ?: return  // no-op outside simulation (matches jDisco behaviour)
+        if (ctx.monitorActive) throw DiscoException("Illegal call of stop (class Variable)")
+        if (_pred != null) {
+            if (_pred !== this) {
+                // Not the first element: link predecessor to successor
+                _pred!!._suc = _suc
+            } else {
+                // This is the first element: advance firstVar.
+                // Mirrors jDisco: firstVar = pred = suc (sets pred=suc as a tmp value for subsequent suc.pred assignment)
+                ctx.firstVar = _suc
+                _pred = _suc  // temporarily set _pred = _suc so the block below sets suc._pred = suc (self-ref as new first)
+            }
+            if (_suc != null) {
+                _suc!!._pred = _pred  // if we removed first: new first's _pred = itself (self-ref)
+                _suc = null
+            }
+            _pred = null
+            rate = 0.0
+        }
+    }
 }
