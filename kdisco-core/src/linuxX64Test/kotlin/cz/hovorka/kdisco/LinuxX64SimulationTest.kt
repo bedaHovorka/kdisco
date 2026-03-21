@@ -25,6 +25,7 @@ class LinuxX64SimulationTest {
 		val expectedTimes = listOf(0.0, 1.5, 3.5)
 		val expectedPosition = 6.372588662275172
 
+		val random = Random(1234L)
 		val position = Variable(0.0)
 		var velocity = 0.0
 		val dynamics = object : Continuous() {
@@ -36,7 +37,7 @@ class LinuxX64SimulationTest {
 		val velocityLog = mutableListOf<Double>()
 
 		val model = Model(
-			random = Random(1234L),
+			random = random,
 			position = position,
 			dynamics = dynamics,
 			driver = object : Process() {
@@ -52,12 +53,12 @@ class LinuxX64SimulationTest {
 
 					timeLog += time()
 
-					velocity = model.random.uniform(1.0, 2.0)
+					velocity = random.uniform(1.0, 2.0)
 					velocityLog += velocity
 					hold(1.5)
 					timeLog += time()
 
-					velocity = model.random.uniform(1.0, 2.0)
+					velocity = random.uniform(1.0, 2.0)
 					velocityLog += velocity
 					hold(2.0)
 					timeLog += time()

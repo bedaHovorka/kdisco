@@ -122,18 +122,17 @@ actual class Random {
 		return sum
 	}
 
-	private companion object {
-		private const val MULTIPLIER = 0x5DEECE66DL
-		private const val ADDEND = 0xBL
-		private const val MASK = (1L shl 48) - 1
-	}
-
 	private val kotlinRandom: KRandom by lazy {
 		object : KRandom() {
 			override fun nextBits(bitCount: Int): Int = next(bitCount)
 		}
 	}
 
-	private fun initialScramble(seed: Long): Long = (seed xor MULTIPLIER) and MASK
-	private fun defaultSeed(): Long = initialScramble(KRandom.Default.nextLong())
+	private companion object {
+		private const val MULTIPLIER = 0x5DEECE66DL
+		private const val ADDEND = 0xBL
+		private const val MASK = (1L shl 48) - 1
+		private fun initialScramble(seed: Long): Long = (seed xor MULTIPLIER) and MASK
+		private fun defaultSeed(): Long = KRandom.Default.nextLong()
+	}
 }
