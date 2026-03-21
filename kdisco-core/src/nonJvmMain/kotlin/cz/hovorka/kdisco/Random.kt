@@ -21,9 +21,7 @@ actual class Random {
 		this.seed = initialScramble(seed)
 	}
 
-	actual fun asKotlinRandom(): KRandom = object : KRandom() {
-		override fun nextBits(bitCount: Int): Int = next(bitCount)
-	}
+	actual fun asKotlinRandom(): KRandom = kotlinRandom
 
 	actual fun normal(mean: Double, stdDev: Double): Double {
 		require(stdDev >= 0.0) { "stdDev must be non-negative, got $stdDev" }
@@ -100,7 +98,7 @@ actual class Random {
 	actual fun randInt(a: Int, b: Int): Int {
 		require(a <= b) { "Lower bound a=$a must be <= upper bound b=$b" }
 		val range = b.toLong() - a.toLong() + 1L
-		require(range <= Int.MAX_VALUE) { "Range [$a, $b] too large (size $range exceeds Int.MAX_VALUE)" }
+		require(range in 1..Int.MAX_VALUE.toLong()) { "Range [$a, $b] too large (size $range exceeds Int.MAX_VALUE)" }
 		return a + nextInt(range.toInt())
 	}
 
@@ -128,8 +126,14 @@ actual class Random {
 		private const val MULTIPLIER = 0x5DEECE66DL
 		private const val ADDEND = 0xBL
 		private const val MASK = (1L shl 48) - 1
-
-		private fun initialScramble(seed: Long): Long = (seed xor MULTIPLIER) and MASK
-		private fun defaultSeed(): Long = initialScramble(KRandom.Default.nextLong())
 	}
+
+	private val kotlinRandom: KRandom by lazy {
+		object : KRandom() {
+			override fun nextBits(bitCount: Int): Int = next(bitCount)
+		}
+	}
+
+	private fun initialScramble(seed: Long): Long = (seed xor MULTIPLIER) and MASK
+	private fun defaultSeed(): Long = initialScramble(KRandom.Default.nextLong())
 }
