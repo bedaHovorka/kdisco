@@ -1,0 +1,23 @@
+name: Keep Workflows Alive
+
+on:
+  schedule:
+    # Run monthly on the 1st at 00:00 UTC.
+    # Resets GitHub's 60-day repository-inactivity timer so that
+    # scheduled workflows (e.g. gradle-ci.yml) are never auto-disabled.
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    name: Keepalive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: peter-evans/keepalive-workflow@v3
+        with:
+          # Only create a keepalive commit when the last commit is ≥ 50 days
+          # old (safely below GitHub's 60-day disabling threshold).
+          time-elapsed: 50
