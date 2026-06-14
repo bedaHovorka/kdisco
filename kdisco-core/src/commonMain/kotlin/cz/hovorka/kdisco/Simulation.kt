@@ -70,8 +70,13 @@ class Simulation internal constructor() {
      *
      * When active [Continuous] processes are present, the [ContinuousMonitor] integrates
      * all active [Variable]s up to the time of the next discrete event before processing it.
+     *
+     * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
+     *   before the next event is processed. Can be used to implement pause, throttle,
+     *   or step-mode control. Called with the simulation clock at the time of the
+     *   *previously* processed event (i.e. before the clock advances to the next event).
      */
-    suspend fun run(endTime: Double) {
+    suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null) {
         check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
         _hasRun = true
         require(endTime >= 0.0) { "End time must be non-negative, got $endTime" }
@@ -100,6 +105,7 @@ class Simulation internal constructor() {
             // (hold/passivate) or terminates, then control returns here for the next event.
             while (!context.stopRequested) {
                 currentCoroutineContext().ensureActive()
+                beforeEvent?.invoke()
 
                 // Peek at the next event without removing it yet.
                 val next = context.eventQueue.peek()
@@ -169,6 +175,13 @@ class Simulation internal constructor() {
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
+
+    /**
+     * Returns the scheduled time of the next pending event, or [Double.MAX_VALUE] if no
+     * events are queued. May be called from the [run] [beforeEvent] hook to implement
+     * step-event control.
+     */
+    fun nextEventTime(): Double = context.eventQueue.peek()?.time ?: Double.MAX_VALUE
 
     /** Requests the simulation to stop after the current event. */
     fun stop() {
