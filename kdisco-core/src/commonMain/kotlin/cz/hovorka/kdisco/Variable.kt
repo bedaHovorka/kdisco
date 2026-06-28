@@ -14,6 +14,15 @@ class Variable(initialState: Double = 0.0) : Link() {
 
     /** The current value of the variable. */
     var state: Double = initialState
+        set(value) {
+            if (field != value) {
+                val old = field
+                field = value
+                Process.activeContext?.eventListener?.invoke(
+                    SimulationEvent.VariableChanged(Process.activeContext!!.currentTime, this, old, value)
+                )
+            }
+        }
 
     /** The derivative with respect to time. Reset to 0.0 at the start of each integration step. */
     var rate: Double = 0.0

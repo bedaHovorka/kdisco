@@ -48,6 +48,9 @@ class Resource(capacity: Int = 1) {
 
         if (isAvailable(amount)) {
             occupied += amount
+            Process.activeContext?.eventListener?.invoke(
+                SimulationEvent.ResourceReserved(Process.activeContext!!.currentTime, current, this, amount)
+            )
             return
         }
 
@@ -65,7 +68,13 @@ class Resource(capacity: Int = 1) {
     fun release(amount: Int = 1) {
         require(amount > 0) { "Amount must be positive, got $amount" }
         require(amount <= occupied) { "Cannot release $amount, only $occupied occupied" }
+        val ctx = Process.activeContext ?: throw DiscoException("Not inside a simulation")
+        val current = ctx.currentProcess as? Process
+            ?: throw DiscoException("No current process")
         occupied -= amount
+        Process.activeContext?.eventListener?.invoke(
+            SimulationEvent.ResourceReleased(Process.activeContext!!.currentTime, current, this, amount)
+        )
 
         while (occupied < capacity) {
             val next = waiters.first() as? Process ?: break
