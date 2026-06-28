@@ -9,6 +9,10 @@ internal class SimulationContext {
     var currentProcess: Process? = null
     var isRunning: Boolean = false
     var stopRequested: Boolean = false
+
+    /** Seeded random number generator for this simulation run. */
+    var random: Random = Random()
+
     val pendingActivations = mutableListOf<PendingActivation>()
 
     // --- Continuous simulation state ---
