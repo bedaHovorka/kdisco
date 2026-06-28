@@ -11,7 +11,7 @@ class VariableTest {
     @Test
     fun variableIsInactiveByDefault() = runTest {
         val v = Variable(5.0)
-        assertThat(v.isActive()).isFalse()
+        assertThat(v.isStarted()).isFalse()
     }
 
     @Test
@@ -21,7 +21,7 @@ class VariableTest {
             val p = object : Process() {
                 override suspend fun actions() {
                     v.start()
-                    assertThat(v.isActive()).isTrue()
+                    assertThat(v.isStarted()).isTrue()
                 }
             }
             Process.activate(p)
@@ -35,9 +35,9 @@ class VariableTest {
             val p = object : Process() {
                 override suspend fun actions() {
                     v.start()
-                    assertThat(v.isActive()).isTrue()
+                    assertThat(v.isStarted()).isTrue()
                     v.stop()
-                    assertThat(v.isActive()).isFalse()
+                    assertThat(v.isStarted()).isFalse()
                 }
             }
             Process.activate(p)
@@ -66,7 +66,7 @@ class VariableTest {
                 override suspend fun actions() {
                     v.start()
                     v.start() // second call should not throw or corrupt state
-                    assertThat(v.isActive()).isTrue()
+                    assertThat(v.isStarted()).isTrue()
                 }
             }
             Process.activate(p)
@@ -81,7 +81,7 @@ class VariableTest {
                 override suspend fun actions() {
                     // Never started — stop should be a no-op
                     v.stop()
-                    assertThat(v.isActive()).isFalse()
+                    assertThat(v.isStarted()).isFalse()
                 }
             }
             Process.activate(p)
@@ -117,14 +117,14 @@ class VariableTest {
                     v1.start()
                     v2.start()
                     v3.start()
-                    assertThat(v1.isActive()).isTrue()
-                    assertThat(v2.isActive()).isTrue()
-                    assertThat(v3.isActive()).isTrue()
+                    assertThat(v1.isStarted()).isTrue()
+                    assertThat(v2.isStarted()).isTrue()
+                    assertThat(v3.isStarted()).isTrue()
 
                     v2.stop()
-                    assertThat(v1.isActive()).isTrue()
-                    assertThat(v2.isActive()).isFalse()
-                    assertThat(v3.isActive()).isTrue()
+                    assertThat(v1.isStarted()).isTrue()
+                    assertThat(v2.isStarted()).isFalse()
+                    assertThat(v3.isStarted()).isTrue()
                 }
             }
             Process.activate(p)
@@ -183,16 +183,16 @@ class VariableTest {
                     v1.start()
                     v2.start()
                     // v2 is inserted at head (newest first)
-                    assertThat(v2.isActive()).isTrue()
-                    assertThat(v1.isActive()).isTrue()
+                    assertThat(v2.isStarted()).isTrue()
+                    assertThat(v1.isStarted()).isTrue()
 
                     v2.stop() // remove head
-                    assertThat(v2.isActive()).isFalse()
-                    assertThat(v1.isActive()).isTrue()
+                    assertThat(v2.isStarted()).isFalse()
+                    assertThat(v1.isStarted()).isTrue()
 
                     // v1 should now be a valid sole member (_pred = self)
                     v1.stop()
-                    assertThat(v1.isActive()).isFalse()
+                    assertThat(v1.isStarted()).isFalse()
                 }
             }
             Process.activate(p)

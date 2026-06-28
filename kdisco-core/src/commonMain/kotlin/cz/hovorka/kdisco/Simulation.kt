@@ -147,6 +147,7 @@ class Simulation internal constructor() {
                 if (cont != null) {
                     // Resume existing coroutine (returning from hold/passivate)
                     process.continuation = null
+                    process._state = ProcessState.RUNNING
                     cont.resumeWith(Result.success(Unit))
                 } else {
                     // First activation — launch new coroutine for process.actions().
@@ -154,12 +155,14 @@ class Simulation internal constructor() {
                     // erroneously rescheduled (e.g. by a reactivate() call that predates
                     // this guard being in place).
                     if (!process._terminated) {
+                        process._state = ProcessState.RUNNING
                         simScope.launch {
                             try {
                                 process.actions()
                             } catch (_: ProcessTerminatedException) {
                                 // Process called terminate() — expected, not an error
                             } finally {
+                                process._state = ProcessState.TERMINATED
                                 process._terminated = true
                             }
                         }
