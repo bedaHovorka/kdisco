@@ -106,6 +106,9 @@ abstract class Process : Link() {
     /** Returns the current simulation time. */
     fun time(): Double = context.currentTime
 
+    /** Returns the simulation's shared random generator. */
+    fun random(): Random = context.random
+
     /** Returns true if this process has completed or been terminated. */
     fun terminated(): Boolean = _terminated
 
