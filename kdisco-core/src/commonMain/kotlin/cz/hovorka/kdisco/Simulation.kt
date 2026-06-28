@@ -156,14 +156,18 @@ class Simulation internal constructor() {
                     // this guard being in place).
                     if (!process._terminated) {
                         process._state = ProcessState.RUNNING
+                        emit(SimulationEvent.ProcessActivated(context.currentTime, process))
                         simScope.launch {
                             try {
                                 process.actions()
                             } catch (_: ProcessTerminatedException) {
                                 // Process called terminate() — expected, not an error
                             } finally {
-                                process._state = ProcessState.TERMINATED
-                                process._terminated = true
+                                if (!process._terminated) {
+                                    process._state = ProcessState.TERMINATED
+                                    process._terminated = true
+                                    emit(SimulationEvent.ProcessTerminated(context.currentTime, process))
+                                }
                             }
                         }
                     }
@@ -205,6 +209,22 @@ class Simulation internal constructor() {
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
+
+    /**
+     * Register a listener that receives every [SimulationEvent] in simulation-time order.
+     *
+     * Listeners are additive — each call appends to the list. All registered listeners
+     * receive every event in registration order. Zero-overhead when no listeners registered.
+     */
+    fun onEvent(listener: (SimulationEvent) -> Unit) {
+        context.eventListeners += listener
+    }
+
+    /** Emit a [SimulationEvent] to all registered listeners, in registration order. */
+    internal fun emit(event: SimulationEvent) {
+        if (context.eventListeners.isEmpty()) return
+        context.eventListeners.forEach { it(event) }
+    }
 
     /**
      * Returns the scheduled time of the next pending event, or [Double.MAX_VALUE] if no

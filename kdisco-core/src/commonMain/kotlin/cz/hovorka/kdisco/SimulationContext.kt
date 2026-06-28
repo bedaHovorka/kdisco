@@ -15,6 +15,9 @@ internal class SimulationContext {
 
     val pendingActivations = mutableListOf<PendingActivation>()
 
+    /** Registered event listeners. Empty list = zero-overhead path (guard is isEmpty()). */
+    val eventListeners: MutableList<(SimulationEvent) -> Unit> = mutableListOf()
+
     // --- Continuous simulation state ---
 
     /** Head of the active [Continuous] list, ordered by descending priority. */

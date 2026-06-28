@@ -33,3 +33,20 @@ suspend fun runSimulation(
 ) {
     simulation(null, setup).run(endTime, controller)
 }
+
+/**
+ * Emit a custom simulation event from any code running on the simulation thread.
+ *
+ * Unlike [Process.emitCustom], this top-level function does not require a [Process]
+ * instance — any service or helper method called from within simulation-time execution
+ * can use it. Uses [Process.activeContext] to reach the event bus.
+ *
+ * No-op when called outside a simulation run (activeContext is null) or when no
+ * listeners are registered.
+ */
+fun emitCustom(payload: Any?) {
+    val ctx = Process.activeContext ?: return
+    if (ctx.eventListeners.isEmpty()) return
+    val event = SimulationEvent.Custom(ctx.currentTime, payload)
+    ctx.eventListeners.forEach { it(event) }
+}
