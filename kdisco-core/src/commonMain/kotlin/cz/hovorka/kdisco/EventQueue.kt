@@ -3,6 +3,11 @@ package cz.hovorka.kdisco
 /**
  * Event queue. Maintains scheduled events sorted by time.
  *
+ * Ordering is fully deterministic: equal-time normal events are ordered by
+ * ascending insertion counter (FIFO), and equal-time priority events by
+ * descending insertion counter (LIFO). No thread-scheduling dependency exists
+ * because the engine runs on a single coroutine dispatcher.
+ *
  * For equal times:
  * - Normal events (`priority = false`): FIFO — earlier-scheduled events run first
  *   (ascending insertion counter, so lower order runs first).
