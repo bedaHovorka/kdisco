@@ -156,14 +156,18 @@ class Simulation internal constructor() {
                     // this guard being in place).
                     if (!process._terminated) {
                         process._state = ProcessState.RUNNING
+                        emit(SimulationEvent.ProcessActivated(context.currentTime, process))
                         simScope.launch {
                             try {
                                 process.actions()
                             } catch (_: ProcessTerminatedException) {
                                 // Process called terminate() — expected, not an error
                             } finally {
-                                process._state = ProcessState.TERMINATED
-                                process._terminated = true
+                                if (!process._terminated) {
+                                    process._state = ProcessState.TERMINATED
+                                    process._terminated = true
+                                    emit(SimulationEvent.ProcessTerminated(context.currentTime, process))
+                                }
                             }
                         }
                     }
@@ -205,6 +209,21 @@ class Simulation internal constructor() {
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
+
+    /**
+     * Register a listener that receives every [SimulationEvent] in simulation-time order.
+     *
+     * Only one listener is supported at a time; subsequent calls replace the previous listener.
+     * Setting no-op when no subscriber keeps the event path overhead-free.
+     */
+    fun onEvent(listener: (SimulationEvent) -> Unit) {
+        context.eventListener = listener
+    }
+
+    /** Emit a [SimulationEvent] to the registered listener, if any. */
+    internal fun emit(event: SimulationEvent) {
+        context.eventListener?.invoke(event)
+    }
 
     /**
      * Returns the scheduled time of the next pending event, or [Double.MAX_VALUE] if no
