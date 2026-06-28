@@ -67,4 +67,38 @@ class ObservableEventsTest {
         }
         assertThat(received).isEqualTo(listOf("from-process"))
     }
+
+    @Test
+    fun multipleListenersAllReceiveEveryEvent() = runTest {
+        val listener1 = mutableListOf<Double>()
+        val listener2 = mutableListOf<Double>()
+        runSimulation(endTime = 10.0) {
+            onEvent { listener1.add(it.time) }
+            onEvent { listener2.add(it.time) }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(2.0)
+                    hold(3.0)
+                }
+            })
+        }
+        // Both listeners receive identical event times
+        assertThat(listener1).isEqualTo(listOf(0.0, 0.0, 2.0, 5.0))
+        assertThat(listener2).isEqualTo(listener1)
+    }
+
+    @Test
+    fun secondListenerDoesNotReplaceFirst() = runTest {
+        val firstCount = mutableListOf<SimulationEvent>()
+        val secondCount = mutableListOf<SimulationEvent>()
+        runSimulation(endTime = 5.0) {
+            onEvent { firstCount.add(it) }
+            onEvent { secondCount.add(it) }
+            Process.activate(object : Process() {
+                override suspend fun actions() { hold(1.0) }
+            })
+        }
+        assertThat(firstCount.size).isGreaterThan(0)
+        assertThat(secondCount.size).isEqualTo(firstCount.size)
+    }
 }
