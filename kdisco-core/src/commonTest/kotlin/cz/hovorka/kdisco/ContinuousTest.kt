@@ -15,7 +15,7 @@ class ContinuousTest {
         val c = object : Continuous() {
             override fun derivatives() {}
         }
-        assertThat(c.isActive()).isFalse()
+        assertThat(c.isStarted()).isFalse()
     }
 
     @Test
@@ -27,7 +27,7 @@ class ContinuousTest {
             val p = object : Process() {
                 override suspend fun actions() {
                     c.start()
-                    assertThat(c.isActive()).isTrue()
+                    assertThat(c.isStarted()).isTrue()
                 }
             }
             Process.activate(p)
@@ -43,9 +43,9 @@ class ContinuousTest {
             val p = object : Process() {
                 override suspend fun actions() {
                     c.start()
-                    assertThat(c.isActive()).isTrue()
+                    assertThat(c.isStarted()).isTrue()
                     c.stop()
-                    assertThat(c.isActive()).isFalse()
+                    assertThat(c.isStarted()).isFalse()
                 }
             }
             Process.activate(p)

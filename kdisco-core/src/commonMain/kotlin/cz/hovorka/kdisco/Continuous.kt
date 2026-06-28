@@ -60,7 +60,7 @@ abstract class Continuous : Process() {
     /**
      * Returns true if this continuous process is currently in the active-continuous list.
      */
-    fun isActive(): Boolean = _pred != null
+    fun isStarted(): Boolean = _pred != null
 
     /**
      * Returns the current priority of this continuous process.

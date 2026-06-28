@@ -45,7 +45,7 @@ class Variable(initialState: Double = 0.0) : Link() {
     /**
      * Returns true if this variable is currently in the active-variable list.
      */
-    fun isActive(): Boolean = _pred != null
+    fun isStarted(): Boolean = _pred != null
 
     /**
      * Returns the value of [state] at the start of the current integration step.
