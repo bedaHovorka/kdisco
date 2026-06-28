@@ -58,6 +58,13 @@ class Simulation internal constructor() {
         get() = context.monitor.integrator
         set(value) { context.monitor.integrator = value }
 
+    /** The random generator used by this simulation. Processes should use this for reproducible draws. */
+    val random: Random get() = context.random
+
+    /** True when this simulation was created with an explicit seed for reproducibility. */
+    var deterministic: Boolean = false
+        internal set
+
     /**
      * Executes the simulation until [endTime] or [stop] is called.
      *
@@ -192,9 +199,16 @@ class Simulation internal constructor() {
         /**
          * Creates a new [Simulation] and runs [setup] with it as the receiver.
          * Processes activated during [setup] are queued for execution when [run] is called.
+         *
+         * @param seed Optional seed for the simulation's random generator. When provided,
+         *   the run is deterministic and [Simulation.deterministic] is set to true.
          */
-        fun create(setup: Simulation.() -> Unit): Simulation {
+        fun create(seed: Long? = null, setup: Simulation.() -> Unit): Simulation {
             val simulation = Simulation()
+            if (seed != null) {
+                simulation.context.random = Random(seed)
+                simulation.deterministic = true
+            }
             val previousContext = Process.activeContext
             Process.activeContext = simulation.context
             try {
