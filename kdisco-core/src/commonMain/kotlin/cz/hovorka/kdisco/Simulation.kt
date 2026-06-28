@@ -213,16 +213,17 @@ class Simulation internal constructor() {
     /**
      * Register a listener that receives every [SimulationEvent] in simulation-time order.
      *
-     * Only one listener is supported at a time; subsequent calls replace the previous listener.
-     * Setting no-op when no subscriber keeps the event path overhead-free.
+     * Listeners are additive — each call appends to the list. All registered listeners
+     * receive every event in registration order. Zero-overhead when no listeners registered.
      */
     fun onEvent(listener: (SimulationEvent) -> Unit) {
-        context.eventListener = listener
+        context.eventListeners += listener
     }
 
-    /** Emit a [SimulationEvent] to the registered listener, if any. */
+    /** Emit a [SimulationEvent] to all registered listeners, in registration order. */
     internal fun emit(event: SimulationEvent) {
-        context.eventListener?.invoke(event)
+        if (context.eventListeners.isEmpty()) return
+        context.eventListeners.forEach { it(event) }
     }
 
     /**

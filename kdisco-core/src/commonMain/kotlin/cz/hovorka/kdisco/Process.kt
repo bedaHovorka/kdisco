@@ -73,7 +73,7 @@ abstract class Process : Link() {
             _state = ProcessState.SCHEDULED
             continuation = cont
             context.eventQueue.schedule(this, context.currentTime + duration)
-            context.eventListener?.invoke(SimulationEvent.ProcessHeld(context.currentTime, this, duration))
+            if (context.eventListeners.isNotEmpty()) context.eventListeners.forEach { it(SimulationEvent.ProcessHeld(context.currentTime, this, duration)) }
             cont.invokeOnCancellation {
                 continuation = null
                 _state = ProcessState.PASSIVATED
@@ -89,7 +89,7 @@ abstract class Process : Link() {
         suspendCancellableCoroutine<Unit> { cont ->
             _state = ProcessState.PASSIVATED
             continuation = cont
-            context.eventListener?.invoke(SimulationEvent.ProcessPassivated(context.currentTime, this))
+            if (context.eventListeners.isNotEmpty()) context.eventListeners.forEach { it(SimulationEvent.ProcessPassivated(context.currentTime, this)) }
             // Not scheduled in event queue — waits for reactivate()
             cont.invokeOnCancellation {
                 continuation = null
@@ -137,7 +137,7 @@ abstract class Process : Link() {
     open fun terminate() {
         _state = ProcessState.TERMINATED
         _terminated = true
-        context.eventListener?.invoke(SimulationEvent.ProcessTerminated(context.currentTime, this))
+        if (context.eventListeners.isNotEmpty()) context.eventListeners.forEach { it(SimulationEvent.ProcessTerminated(context.currentTime, this)) }
         context.eventQueue.remove(this)
         throw ProcessTerminatedException()
     }
@@ -150,7 +150,9 @@ abstract class Process : Link() {
 
     /** Emit a custom event from within a process. */
     fun emitCustom(payload: Any?) {
-        context.eventListener?.invoke(SimulationEvent.Custom(context.currentTime, payload))
+        if (context.eventListeners.isEmpty()) return
+        val event = SimulationEvent.Custom(context.currentTime, payload)
+        context.eventListeners.forEach { it(event) }
     }
 
     /** Returns true if this process has completed or been terminated. */
@@ -201,7 +203,7 @@ abstract class Process : Link() {
             process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {
                 ctx.eventQueue.schedule(process, ctx.currentTime + delay)
-                ctx.eventListener?.invoke(SimulationEvent.ProcessActivated(ctx.currentTime + delay, process))
+                if (ctx.eventListeners.isNotEmpty()) ctx.eventListeners.forEach { it(SimulationEvent.ProcessActivated(ctx.currentTime + delay, process)) }
             } else {
                 ctx.pendingActivations.add(PendingActivation(process, delay))
             }
@@ -217,7 +219,7 @@ abstract class Process : Link() {
         fun reactivate(process: Process) {
             if (process._terminated) return
             process._state = ProcessState.SCHEDULED
-            process.context.eventListener?.invoke(SimulationEvent.ProcessReactivated(process.context.currentTime, process))
+            if (process.context.eventListeners.isNotEmpty()) process.context.eventListeners.forEach { it(SimulationEvent.ProcessReactivated(process.context.currentTime, process)) }
             process.context.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
             process.context.eventQueue.remove(process)   // prevent duplicate if already scheduled
             process.context.eventQueue.schedule(process, process.context.currentTime)
