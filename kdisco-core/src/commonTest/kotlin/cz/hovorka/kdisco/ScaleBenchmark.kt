@@ -3,8 +3,8 @@ package cz.hovorka.kdisco
 import assertk.assertThat
 import assertk.assertions.*
 import kotlinx.coroutines.test.runTest
-import kotlin.system.measureTimeMillis
 import kotlin.test.Test
+import kotlin.time.measureTime
 
 class ScaleBenchmark {
 
@@ -22,7 +22,7 @@ class ScaleBenchmark {
     suspend fun run(n: Int, seed: Long = 42L, cycles: Int = 20): Result {
         var eventCount = 0
         val simEnd = 100_000.0
-        val wallMs = measureTimeMillis {
+        val wallMs = measureTime {
             runSimulation(endTime = simEnd, seed = seed) {
                 val resource = Resource(capacity = 3)
                 repeat(n) { id ->
@@ -40,7 +40,7 @@ class ScaleBenchmark {
                     }, delay = id * 0.1)
                 }
             }
-        }
+        }.inWholeMilliseconds
         return Result(n, seed, eventCount, wallMs, simEnd)
     }
 
