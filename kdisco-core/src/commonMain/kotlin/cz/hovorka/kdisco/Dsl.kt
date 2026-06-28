@@ -31,5 +31,5 @@ suspend fun runSimulation(
     controller: SimulationController,
     setup: Simulation.() -> Unit
 ) {
-    simulation(setup).run(endTime, controller)
+    simulation(null, setup).run(endTime, controller)
 }
