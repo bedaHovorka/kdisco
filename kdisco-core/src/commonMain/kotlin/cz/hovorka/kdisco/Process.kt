@@ -10,6 +10,32 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 internal class ProcessTerminatedException : Exception()
 
 /**
+ * Lifecycle states of a [Process].
+ *
+ * A process starts in [IDLE]. The simulation scheduler transitions it to
+ * [RUNNING] while executing [Process.actions]. Suspension points move it
+ * to [SCHEDULED] (will resume automatically) or [PASSIVATED] (must be
+ * resumed explicitly). A completed or explicitly stopped process ends in
+ * [TERMINATED].
+ */
+internal enum class ProcessState {
+    /** Created but not yet scheduled. */
+    IDLE,
+
+    /** Currently executing [Process.actions]. */
+    RUNNING,
+
+    /** Suspended and scheduled to resume automatically (e.g. after [hold]). */
+    SCHEDULED,
+
+    /** Suspended and waiting for explicit [Process.reactivate]. */
+    PASSIVATED,
+
+    /** Completed normally or stopped via [Process.terminate]. */
+    TERMINATED
+}
+
+/**
  * Base class for discrete-event simulation entities.
  *
  * Each process is a Kotlin coroutine scheduled by the simulation engine.
@@ -25,6 +51,7 @@ abstract class Process : Link() {
     internal lateinit var context: SimulationContext
     internal var continuation: kotlin.coroutines.Continuation<Unit>? = null
     internal var _terminated: Boolean = false
+    internal var _state: ProcessState = ProcessState.IDLE
 
     /**
      * Defines the behavior of this process. Called by the scheduler.
@@ -43,10 +70,12 @@ abstract class Process : Link() {
     suspend fun hold(duration: Double) {
         require(duration >= 0.0) { "Duration must be non-negative, got $duration" }
         suspendCancellableCoroutine<Unit> { cont ->
+            _state = ProcessState.SCHEDULED
             continuation = cont
             context.eventQueue.schedule(this, context.currentTime + duration)
             cont.invokeOnCancellation {
                 continuation = null
+                _state = ProcessState.PASSIVATED
                 context.eventQueue.remove(this@Process)
             }
         }
@@ -57,6 +86,7 @@ abstract class Process : Link() {
      */
     suspend fun passivate() {
         suspendCancellableCoroutine<Unit> { cont ->
+            _state = ProcessState.PASSIVATED
             continuation = cont
             // Not scheduled in event queue — waits for reactivate()
             cont.invokeOnCancellation {
@@ -81,6 +111,7 @@ abstract class Process : Link() {
     suspend fun waitUntil(condition: Condition) {
         while (!condition.test()) {
             suspendCancellableCoroutine<Unit> { cont ->
+                _state = ProcessState.SCHEDULED
                 continuation = cont
                 context.waitNotices.add(WaitNotice(this, condition))
                 cont.invokeOnCancellation {
@@ -102,6 +133,7 @@ abstract class Process : Link() {
      * reactivate to allow the process to complete its current cycle first).
      */
     open fun terminate() {
+        _state = ProcessState.TERMINATED
         _terminated = true
         context.eventQueue.remove(this)
         throw ProcessTerminatedException()
@@ -115,6 +147,29 @@ abstract class Process : Link() {
 
     /** Returns true if this process has completed or been terminated. */
     fun terminated(): Boolean = _terminated
+
+    /**
+     * Returns true if this process is currently running or scheduled to run again.
+     *
+     * A process is active when it is in the [ProcessState.RUNNING] or
+     * [ProcessState.SCHEDULED] state. It is not active while [passivate]d or
+     * after it has [terminate]d.
+     */
+    fun isActive(): Boolean = _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
+
+    /**
+     * Returns true if this process is passivated (suspended until explicitly
+     * reactivated via [Process.reactivate]).
+     */
+    fun isPassivated(): Boolean = _state == ProcessState.PASSIVATED
+
+    /**
+     * Returns true if this process has terminated.
+     *
+     * A process is terminated after [terminate] is called or after its
+     * [actions] body completes normally.
+     */
+    fun isTerminated(): Boolean = _state == ProcessState.TERMINATED
 
     companion object {
         /**
@@ -135,6 +190,7 @@ abstract class Process : Link() {
             require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
             val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
             process.context = ctx
+            process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {
                 ctx.eventQueue.schedule(process, ctx.currentTime + delay)
             } else {
@@ -151,6 +207,7 @@ abstract class Process : Link() {
          */
         fun reactivate(process: Process) {
             if (process._terminated) return
+            process._state = ProcessState.SCHEDULED
             process.context.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
             process.context.eventQueue.remove(process)   // prevent duplicate if already scheduled
             process.context.eventQueue.schedule(process, process.context.currentTime)
