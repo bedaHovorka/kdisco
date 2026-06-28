@@ -36,7 +36,7 @@ class ResourceTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     r.reserve()
-                    log.add("A-${time()}")
+                    log.add("A-${fmt(time())}")
                     hold(5.0)
                     r.release()
                 }
@@ -44,7 +44,7 @@ class ResourceTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     r.reserve()
-                    log.add("B-${time()}")
+                    log.add("B-${fmt(time())}")
                     hold(1.0)
                     r.release()
                 }
@@ -62,9 +62,9 @@ class ResourceTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     r.reserve()
-                    log.add("holder-${time()}")
+                    log.add("holder-${fmt(time())}")
                     hold(3.0)
-                    log.add("releasing-${time()}")
+                    log.add("releasing-${fmt(time())}")
                     r.release()
                 }
             })
@@ -72,7 +72,7 @@ class ResourceTest {
                 override suspend fun actions() {
                     blocker = this
                     r.reserve()
-                    log.add("waiter-${time()}")
+                    log.add("waiter-${fmt(time())}")
                     r.release()
                 }
             })
@@ -96,7 +96,7 @@ class ResourceTest {
                 Process.activate(object : Process() {
                     override suspend fun actions() {
                         r.reserve()
-                        log.add("W$i-${time()}")
+                        log.add("W$i-${fmt(time())}")
                         hold(1.0)
                         r.release()
                     }
@@ -115,7 +115,7 @@ class ResourceTest {
                 Process.activate(object : Process() {
                     override suspend fun actions() {
                         r.reserve()
-                        log.add("H$i-${time()}")
+                        log.add("H$i-${fmt(time())}")
                         hold(2.0)
                         r.release()
                     }
@@ -123,5 +123,14 @@ class ResourceTest {
             }
         }
         assertThat(log).containsExactly("H0-0.0", "H1-0.0", "H2-2.0")
+    }
+
+    /**
+     * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
+     * behaviour on JS where whole numbers are rendered without `.0`.
+     */
+    private fun fmt(value: Double): String {
+        val s = value.toString()
+        return if ('.' in s) s else "$s.0"
     }
 }
