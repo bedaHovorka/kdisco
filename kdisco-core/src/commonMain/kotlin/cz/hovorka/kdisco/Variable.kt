@@ -18,8 +18,10 @@ class Variable(initialState: Double = 0.0) : Link() {
             if (field != value) {
                 val old = field
                 field = value
-                val ctx = Process.activeContext
-                if (ctx != null && ctx.eventListeners.isNotEmpty()) ctx.eventListeners.forEach { it(SimulationEvent.VariableChanged(ctx.currentTime, this, old, value)) }
+                val ctx = Process.activeContext ?: return
+                if (ctx.eventListeners.isEmpty()) return
+                val event = SimulationEvent.VariableChanged(ctx.currentTime, this, old, value)
+                ctx.eventListeners.forEach { it(event) }
             }
         }
 

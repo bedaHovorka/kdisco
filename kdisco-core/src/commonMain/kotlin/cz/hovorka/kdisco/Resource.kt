@@ -48,8 +48,9 @@ class Resource(capacity: Int = 1) {
 
         if (isAvailable(amount)) {
             occupied += amount
-            val ctx0 = Process.activeContext
-        if (ctx0 != null && ctx0.eventListeners.isNotEmpty()) ctx0.eventListeners.forEach { it(SimulationEvent.ResourceReserved(ctx0.currentTime, current, this, amount)) }
+            if (ctx.eventListeners.isEmpty()) return
+            val event = SimulationEvent.ResourceReserved(ctx.currentTime, current, this, amount)
+            ctx.eventListeners.forEach { it(event) }
             return
         }
 
@@ -71,8 +72,10 @@ class Resource(capacity: Int = 1) {
         val current = ctx.currentProcess as? Process
             ?: throw DiscoException("No current process")
         occupied -= amount
-        val ctx1 = Process.activeContext
-        if (ctx1 != null && ctx1.eventListeners.isNotEmpty()) ctx1.eventListeners.forEach { it(SimulationEvent.ResourceReleased(ctx1.currentTime, current, this, amount)) }
+        if (ctx.eventListeners.isNotEmpty()) {
+            val event = SimulationEvent.ResourceReleased(ctx.currentTime, current, this, amount)
+            ctx.eventListeners.forEach { it(event) }
+        }
 
         while (occupied < capacity) {
             val next = waiters.first() as? Process ?: break

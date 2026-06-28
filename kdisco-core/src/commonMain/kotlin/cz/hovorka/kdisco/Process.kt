@@ -73,7 +73,10 @@ abstract class Process : Link() {
             _state = ProcessState.SCHEDULED
             continuation = cont
             context.eventQueue.schedule(this, context.currentTime + duration)
-            if (context.eventListeners.isNotEmpty()) context.eventListeners.forEach { it(SimulationEvent.ProcessHeld(context.currentTime, this, duration)) }
+            if (context.eventListeners.isNotEmpty()) {
+                val event = SimulationEvent.ProcessHeld(context.currentTime, this, duration)
+                context.eventListeners.forEach { it(event) }
+            }
             cont.invokeOnCancellation {
                 continuation = null
                 _state = ProcessState.PASSIVATED
@@ -89,7 +92,10 @@ abstract class Process : Link() {
         suspendCancellableCoroutine<Unit> { cont ->
             _state = ProcessState.PASSIVATED
             continuation = cont
-            if (context.eventListeners.isNotEmpty()) context.eventListeners.forEach { it(SimulationEvent.ProcessPassivated(context.currentTime, this)) }
+            if (context.eventListeners.isNotEmpty()) {
+                val event = SimulationEvent.ProcessPassivated(context.currentTime, this)
+                context.eventListeners.forEach { it(event) }
+            }
             // Not scheduled in event queue — waits for reactivate()
             cont.invokeOnCancellation {
                 continuation = null
@@ -137,7 +143,10 @@ abstract class Process : Link() {
     open fun terminate() {
         _state = ProcessState.TERMINATED
         _terminated = true
-        if (context.eventListeners.isNotEmpty()) context.eventListeners.forEach { it(SimulationEvent.ProcessTerminated(context.currentTime, this)) }
+        if (context.eventListeners.isNotEmpty()) {
+            val event = SimulationEvent.ProcessTerminated(context.currentTime, this)
+            context.eventListeners.forEach { it(event) }
+        }
         context.eventQueue.remove(this)
         throw ProcessTerminatedException()
     }
@@ -203,7 +212,10 @@ abstract class Process : Link() {
             process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {
                 ctx.eventQueue.schedule(process, ctx.currentTime + delay)
-                if (ctx.eventListeners.isNotEmpty()) ctx.eventListeners.forEach { it(SimulationEvent.ProcessActivated(ctx.currentTime + delay, process)) }
+                if (ctx.eventListeners.isNotEmpty()) {
+                    val event = SimulationEvent.ProcessActivated(ctx.currentTime + delay, process)
+                    ctx.eventListeners.forEach { it(event) }
+                }
             } else {
                 ctx.pendingActivations.add(PendingActivation(process, delay))
             }
@@ -218,11 +230,15 @@ abstract class Process : Link() {
          */
         fun reactivate(process: Process) {
             if (process._terminated) return
+            val ctx = process.context
             process._state = ProcessState.SCHEDULED
-            if (process.context.eventListeners.isNotEmpty()) process.context.eventListeners.forEach { it(SimulationEvent.ProcessReactivated(process.context.currentTime, process)) }
-            process.context.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
-            process.context.eventQueue.remove(process)   // prevent duplicate if already scheduled
-            process.context.eventQueue.schedule(process, process.context.currentTime)
+            if (ctx.eventListeners.isNotEmpty()) {
+                val event = SimulationEvent.ProcessReactivated(ctx.currentTime, process)
+                ctx.eventListeners.forEach { it(event) }
+            }
+            ctx.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
+            ctx.eventQueue.remove(process)   // prevent duplicate if already scheduled
+            ctx.eventQueue.schedule(process, ctx.currentTime)
         }
 
         /**
