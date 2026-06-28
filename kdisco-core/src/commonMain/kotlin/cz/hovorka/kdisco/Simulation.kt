@@ -83,7 +83,7 @@ class Simulation internal constructor() {
      *   or step-mode control. Called with the simulation clock at the time of the
      *   *previously* processed event (i.e. before the clock advances to the next event).
      */
-    suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null) {
+    suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null): Boolean {
         check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
         _hasRun = true
         require(endTime >= 0.0) { "End time must be non-negative, got $endTime" }
@@ -181,6 +181,26 @@ class Simulation internal constructor() {
             simScope.cancel()
             withContext(NonCancellable) { simJob.join() }
         }
+        return true
+    }
+
+    /**
+     * Runs the simulation under an external [SimulationController].
+     *
+     * The controller's [SimulationController.beforeEvent] hook is invoked once per
+     * event-loop iteration before the next event is processed.
+     */
+    suspend fun run(endTime: Double, controller: SimulationController): Boolean {
+        return run(endTime) { controller.beforeEvent(this) }
+    }
+
+    /**
+     * Runs the simulation under an external [SimulationController].
+     *
+     * This is a convenience overload equivalent to [run] with a controller argument.
+     */
+    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean {
+        return run(endTime, controller)
     }
 
     /** Returns the current simulation clock time. */
@@ -208,6 +228,12 @@ class Simulation internal constructor() {
     fun stop() {
         context.stopRequested = true
     }
+
+    /** `true` while the simulation is executing [run]. */
+    val isRunning: Boolean get() = context.isRunning
+
+    /** `true` if the simulation has been requested to stop. */
+    fun isStopRequested(): Boolean = context.stopRequested
 
     companion object {
         /**

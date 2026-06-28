@@ -21,3 +21,15 @@ suspend fun runSimulation(
 ) {
     simulation(seed, setup).run(endTime)
 }
+
+/**
+ * Creates and immediately runs a simulation until [endTime] under an external
+ * [SimulationController].
+ */
+suspend fun runSimulation(
+    endTime: Double = Double.MAX_VALUE,
+    controller: SimulationController,
+    setup: Simulation.() -> Unit
+) {
+    simulation(null, setup).run(endTime, controller)
+}
