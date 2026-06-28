@@ -45,6 +45,8 @@ internal class EventQueue {
 
     fun peek(): ScheduledEvent? = events.firstOrNull()
 
+    fun size(): Int = events.size
+
     private fun findInsertionPoint(time: Double, order: Long): Int {
         var low = 0
         var high = events.size

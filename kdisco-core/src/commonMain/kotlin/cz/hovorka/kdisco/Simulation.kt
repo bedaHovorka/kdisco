@@ -190,6 +190,17 @@ class Simulation internal constructor() {
      */
     fun nextEventTime(): Double = context.eventQueue.peek()?.time ?: Double.MAX_VALUE
 
+    /** Number of events currently waiting in the event queue. */
+    fun scheduledEventCount(): Int {
+        return context.eventQueue.size()
+    }
+
+    /** Number of processes that are active (running or scheduled) plus passivated. */
+    fun activeProcessCount(): Int {
+        return context.pendingActivations.size + context.eventQueue.size() +
+                (if (context.currentProcess != null) 1 else 0)
+    }
+
     /** Requests the simulation to stop after the current event. */
     fun stop() {
         context.stopRequested = true
