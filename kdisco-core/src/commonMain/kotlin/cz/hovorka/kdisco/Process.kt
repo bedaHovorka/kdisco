@@ -15,6 +15,10 @@ internal class ProcessTerminatedException : Exception()
  * Each process is a Kotlin coroutine scheduled by the simulation engine.
  * Override [actions] to define process behavior using [hold], [passivate],
  * and [terminate].
+ *
+ * When multiple processes are activated at the same simulation time, the engine
+ * orders them deterministically by activation order (FIFO for normal activations).
+ * Paired with a fixed [Random] seed, repeated runs produce identical event logs.
  */
 abstract class Process : Link() {
 
@@ -167,6 +171,12 @@ abstract class Process : Link() {
         fun time(): Double {
             val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
             return ctx.currentTime
+        }
+
+        /** Number of events currently scheduled in the active simulation. */
+        fun scheduledEventCount(): Int {
+            val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
+            return ctx.eventQueue.size()
         }
     }
 }
