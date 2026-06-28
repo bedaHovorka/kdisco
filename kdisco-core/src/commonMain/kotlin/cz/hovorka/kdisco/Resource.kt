@@ -72,15 +72,15 @@ class Resource(capacity: Int = 1) {
         val current = ctx.currentProcess as? Process
             ?: throw DiscoException("No current process")
         occupied -= amount
+        if (ctx.eventListeners.isNotEmpty()) {
+            val event = SimulationEvent.ResourceReleased(ctx.currentTime, current, this, amount)
+            ctx.eventListeners.forEach { it(event) }
+        }
 
         while (occupied < capacity) {
             val next = waiters.first() as? Process ?: break
             next.out()
             Process.reactivate(next)
         }
-
-        if (ctx.eventListeners.isEmpty()) return
-        val event = SimulationEvent.ResourceReleased(ctx.currentTime, current, this, amount)
-        ctx.eventListeners.forEach { it(event) }
     }
 }
