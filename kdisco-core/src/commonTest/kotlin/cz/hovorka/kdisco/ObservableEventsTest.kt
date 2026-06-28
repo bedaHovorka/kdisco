@@ -52,4 +52,19 @@ class ObservableEventsTest {
         }
         assertThat(events).isEqualTo(listOf("hello", 42))
     }
+
+    @Test
+    fun topLevelEmitCustomDeliveredWhenCalledOutsideProcessSubclass() = runTest {
+        val received = mutableListOf<Any?>()
+        runSimulation(endTime = 10.0) {
+            onEvent { if (it is SimulationEvent.Custom) received.add(it.payload) }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    // Call the top-level emitCustom (not Process.emitCustom)
+                    cz.hovorka.kdisco.emitCustom("from-process")
+                }
+            })
+        }
+        assertThat(received).isEqualTo(listOf("from-process"))
+    }
 }
