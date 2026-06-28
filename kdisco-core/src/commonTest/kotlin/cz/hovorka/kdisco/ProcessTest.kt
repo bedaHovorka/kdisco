@@ -303,4 +303,83 @@ class ProcessTest {
         sim.run(10.0)
         assertThat(resumeCount).isEqualTo(1)       // must not execute twice
     }
+
+    @Test
+    fun lifecycleActiveHoldReactivateTerminate() = runTest {
+        lateinit var p: Process
+        val log = mutableListOf<String>()
+        p = object : Process() {
+            override suspend fun actions() {
+                log.add("start-${isActive()}-${isPassivated()}-${isTerminated()}")
+                hold(5.0)
+                log.add("afterHold-${isActive()}-${isPassivated()}-${isTerminated()}")
+                passivate()
+            }
+        }
+        val reactivator = object : Process() {
+            override suspend fun actions() {
+                hold(10.0)
+                log.add("reactivating-p-${p.isActive()}-${p.isPassivated()}-${p.isTerminated()}")
+                Process.reactivate(p)
+                hold(1.0)
+                log.add("afterReactivate-p-${p.isActive()}-${p.isPassivated()}-${p.isTerminated()}")
+            }
+        }
+        val terminator = object : Process() {
+            override suspend fun actions() {
+                hold(12.0)
+                log.add("terminating-p-${p.isActive()}-${p.isPassivated()}-${p.isTerminated()}")
+                p.terminate()
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(p)
+            Process.activate(reactivator)
+            Process.activate(terminator)
+        }
+        assertThat(log).containsExactly(
+            "start-true-false-false",
+            "afterHold-true-false-false",
+            "reactivating-p-false-true-false",
+            "afterReactivate-p-false-false-true",
+            "terminating-p-false-false-true"
+        )
+        assertThat(p.isTerminated()).isTrue()
+    }
+
+    @Test
+    fun terminatedProcessIsNotActiveOrPassivated() = runTest {
+        val p = object : Process() {
+            override suspend fun actions() {
+                terminate()
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(p.isActive()).isFalse()
+        assertThat(p.isPassivated()).isFalse()
+    }
+
+    @Test
+    fun passivatedProcessIsNotActive() = runTest {
+        lateinit var p: Process
+        var observed = ""
+        p = object : Process() {
+            override suspend fun actions() {
+                passivate()
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    observed = "${p.isPassivated()}-${p.isActive()}-${p.isTerminated()}"
+                }
+            })
+        }
+        assertThat(observed).isEqualTo("true-false-false")
+    }
 }
