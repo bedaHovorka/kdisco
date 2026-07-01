@@ -66,6 +66,14 @@ abstract class Continuous : Process() {
     fun isStarted(): Boolean = _pred != null
 
     /**
+     * Returns true if this continuous process is currently in the active-continuous list.
+     *
+     * @deprecated renamed to [isStarted]
+     */
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    override fun isActive(): Boolean = isStarted()
+
+    /**
      * Returns the current priority of this continuous process.
      */
     fun getPriority(): Double = _priority

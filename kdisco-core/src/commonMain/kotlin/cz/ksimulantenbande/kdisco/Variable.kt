@@ -69,6 +69,14 @@ class Variable(initialState: Double = 0.0) : Link() {
     fun isStarted(): Boolean = _pred != null
 
     /**
+     * Returns true if this variable is currently in the active-variable list.
+     *
+     * @deprecated renamed to [isStarted]
+     */
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    fun isActive(): Boolean = isStarted()
+
+    /**
      * Returns the value of [state] at the start of the current integration step.
      * Equivalent to [oldState]. Intended for difference-equation descriptions.
      */
