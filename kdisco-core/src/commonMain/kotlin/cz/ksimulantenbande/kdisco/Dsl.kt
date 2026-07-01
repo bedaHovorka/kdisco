@@ -38,6 +38,30 @@ suspend fun runSimulation(
 }
 
 /**
+ * Reconstructs a simulation from a captured checkpoint and immediately runs it until [endTime].
+ *
+ * This is a convenience wrapper around [Simulation.resume] + [Simulation.run].
+ * See [Simulation.resume] for the full contract, including how to supply process instances
+ * and the mapping responsibility between captured and fresh processes.
+ *
+ * @param events Captured event queue (from [Simulation.pendingEvents]), with each
+ *   [PendingEvent.process] replaced by an equivalent freshly constructed instance.
+ * @param clockTime The clock value at the capture point (from [Simulation.time]).
+ * @param randomState The RNG state at the capture point (from [Simulation.captureRandom]).
+ * @param endTime Upper time bound for this resumed run.
+ * @param block Optional configuration block applied to the [Simulation] before running.
+ */
+suspend fun resumeSimulation(
+    events: List<PendingEvent>,
+    clockTime: Double,
+    randomState: RandomState,
+    endTime: Double = Double.MAX_VALUE,
+    block: (Simulation.() -> Unit)? = null
+) {
+    Simulation.resume(events, clockTime, randomState, block).run(endTime)
+}
+
+/**
  * Emit a custom simulation event from any code running on the simulation thread.
  *
  * Unlike [Process.emitCustom], this top-level function does not require a [Process]
