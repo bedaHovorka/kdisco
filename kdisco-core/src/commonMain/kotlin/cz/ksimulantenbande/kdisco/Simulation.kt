@@ -206,8 +206,12 @@ class Simulation internal constructor() {
     /**
      * Runs the simulation under an external [SimulationController].
      *
-     * This is a convenience overload equivalent to [run] with a controller argument.
+     * @deprecated Parameter order is the reverse of [run]. Use `run(endTime, controller)` instead.
      */
+    @Deprecated(
+        message = "Parameter order is reversed relative to run(endTime, controller). Use run(endTime, controller) instead.",
+        replaceWith = ReplaceWith("run(endTime, controller)")
+    )
     suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean {
         return run(endTime, controller)
     }
