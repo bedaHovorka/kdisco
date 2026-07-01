@@ -101,4 +101,63 @@ class EventQueueTest {
         assertThat(peeked.process).isEqualTo(p1)
         assertThat(eq.isEmpty()).isFalse()
     }
+
+    @Test
+    fun snapshotMatchesRemoveFirstOrder() {
+        val eq = EventQueue()
+        val pEarly = TestProcess()
+        val pLate = TestProcess()
+        val pNormal1 = TestProcess()
+        val pNormal2 = TestProcess()
+        val pPriority = TestProcess()
+
+        // Mixed: two different times, two FIFO at same time, one priority at same time
+        eq.schedule(pEarly, 3.0)
+        eq.schedule(pNormal1, 5.0)
+        eq.schedule(pNormal2, 5.0)
+        eq.schedule(pPriority, 5.0, priority = true)
+        eq.schedule(pLate, 10.0)
+
+        // Snapshot must reflect the same order as removeFirst() would yield
+        val snapshot = eq.snapshot()
+        assertThat(snapshot.size).isEqualTo(5)
+
+        // Verify each entry's process, time, and priority flag match removal order
+        val removed = mutableListOf<ScheduledEvent>()
+        while (true) removed.add(eq.removeFirst() ?: break)
+
+        assertThat(snapshot.map { it.process }).isEqualTo(removed.map { it.process })
+        assertThat(snapshot.map { it.time }).isEqualTo(removed.map { it.time })
+        assertThat(snapshot.map { it.priority }).isEqualTo(removed.map { it.priority })
+        assertThat(snapshot.map { it.insertionOrder }).isEqualTo(removed.map { it.insertionOrder })
+    }
+
+    @Test
+    fun snapshotDoesNotMutateQueue() {
+        val eq = EventQueue()
+        val p1 = TestProcess()
+        val p2 = TestProcess()
+        eq.schedule(p1, 5.0)
+        eq.schedule(p2, 10.0)
+
+        val before = eq.size()
+        eq.snapshot()
+        assertThat(eq.size()).isEqualTo(before)
+    }
+
+    @Test
+    fun snapshotPriorityFlagReflectsScheduleCall() {
+        val eq = EventQueue()
+        val pNormal = TestProcess()
+        val pPriority = TestProcess()
+        eq.schedule(pNormal, 5.0, priority = false)
+        eq.schedule(pPriority, 5.0, priority = true)
+
+        val snapshot = eq.snapshot()
+        // Priority event runs first (LIFO), so it appears first in the snapshot
+        assertThat(snapshot[0].process).isEqualTo(pPriority)
+        assertThat(snapshot[0].priority).isTrue()
+        assertThat(snapshot[1].process).isEqualTo(pNormal)
+        assertThat(snapshot[1].priority).isFalse()
+    }
 }
