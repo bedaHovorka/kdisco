@@ -129,6 +129,20 @@ actual class Random {
         return sum
     }
 
+    actual fun captureState(): RandomState = RandomState(
+        longArrayOf(
+            seed,
+            nextNextGaussian.toBits(),
+            if (haveNextNextGaussian) 1L else 0L,
+        ),
+    )
+
+    actual fun restoreState(state: RandomState) {
+        seed = state.data[0]
+        nextNextGaussian = Double.fromBits(state.data[1])
+        haveNextNextGaussian = state.data[2] != 0L
+    }
+
     private val kotlinRandom: KRandom by lazy {
         object : KRandom() {
             override fun nextBits(bitCount: Int): Int = next(bitCount)
