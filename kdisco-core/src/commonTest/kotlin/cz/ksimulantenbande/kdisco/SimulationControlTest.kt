@@ -63,6 +63,36 @@ class SimulationControlTest {
     }
 
     @Test
+    fun pauseAfterStaleResumeStaysBlocked() = runTest {
+        // step()/resume() called while NOT paused leaves a Unit in the CONFLATED channel.
+        // pause() must drain it so the next paused interval doesn't get an unexpected
+        // immediate unblock.
+        val controller = SimulationController()
+        val log = mutableListOf<Double>()
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    repeat(3) {
+                        log.add(time())
+                        hold(1.0)
+                    }
+                }
+            })
+        }
+        // Fire resume() while not paused — plants a stale Unit in pauseChannel.
+        controller.resume()
+        // Now pause — must drain that stale Unit.
+        controller.pause()
+        val job = launch { sim.run(10.0, controller) }
+        yield()
+        // Simulation must remain paused; no events should have been processed.
+        assertThat(controller.isPaused()).isTrue()
+        assertThat(log).isEmpty()
+        controller.resume()
+        job.join()
+    }
+
+    @Test
     fun throttleApproximatesRealTimeFactor() = runTest {
         val controller = SimulationController()
         val sim = Simulation.create {

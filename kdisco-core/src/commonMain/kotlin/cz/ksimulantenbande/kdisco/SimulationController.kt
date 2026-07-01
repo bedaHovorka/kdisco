@@ -43,6 +43,9 @@ class SimulationController {
     fun pause() {
         paused = true
         stepsRequested = 0
+        // Drain any stale signal left by a step()/resume() that fired while not paused,
+        // so it cannot cause an unexpected immediate unpause on the next beforeEvent().
+        while (pauseChannel.tryReceive().isSuccess) {}
     }
 
     /** Resume normal execution. */
