@@ -288,6 +288,18 @@ class Simulation internal constructor() {
     fun scheduledEventCount(): Int = context.eventQueue.size()
 
     /**
+     * Returns a read-only ordered snapshot of all events currently waiting in the event queue.
+     *
+     * The list is ordered in the same way that the scheduler would process them: by ascending
+     * simulation time, with equal-time normal events in FIFO order and equal-time priority
+     * events in LIFO order ahead of normal events. The queue itself is not mutated.
+     *
+     * This method is safe to call at any point — before, during (e.g. from a [run]
+     * [beforeEvent] hook), or after [run] has completed.
+     */
+    fun pendingEvents(): List<PendingEvent> = context.eventQueue.snapshot()
+
+    /**
      * Number of outstanding wake-ups: pending activations, queued events, and registered wait
      * ([Process.waitUntil]) and crossing ([Process.waitCrossing], [Process.waitUntilCrossing])
      * notices, plus the process currently executing. Passivated processes are not counted.
