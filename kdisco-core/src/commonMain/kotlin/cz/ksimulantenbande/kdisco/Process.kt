@@ -84,7 +84,12 @@ abstract class Process : Link() {
                 continuation = null
                 _state = ProcessState.TERMINATED
                 _terminated = true
-                context.eventQueue.remove(this@Process)
+                // Note: we do NOT remove this process from eventQueue here.
+                // This handler fires only when simScope.cancel() is called at simulation end.
+                // Removing from the queue at that point would erase events needed by
+                // pendingEvents() for checkpoint/resume.  The queue is no longer driven
+                // after run() exits, so leaving the entry in place is harmless.
+                // (Self-termination via terminate() removes from the queue explicitly.)
             }
         }
     }
