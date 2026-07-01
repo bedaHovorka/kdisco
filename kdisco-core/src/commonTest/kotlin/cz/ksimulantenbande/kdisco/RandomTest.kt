@@ -63,4 +63,85 @@ class RandomTest {
         val sampleMean = samples.average()
         assertThat(sampleMean).isBetween(mean - 0.1, mean + 0.1)
     }
+
+    // --- captureState / restoreState tests ---
+
+    private fun drawN(r: Random, n: Int): List<Double> = List(n) { r.uniform(0.0, 1.0) }
+
+    @Test
+    fun captureAndRestoreReproducesUniform() {
+        val r = Random(99L)
+        r.uniform(0.0, 1.0) // advance a bit
+        val state = r.captureState()
+        val first = drawN(r, 20)
+        r.restoreState(state)
+        val second = drawN(r, 20)
+        assertThat(second).isEqualTo(first)
+    }
+
+    @Test
+    fun captureAndRestoreReproducesAllDistributions() {
+        val r = Random(7L)
+        // Warm up so the state isn't at position zero
+        repeat(5) { r.uniform(0.0, 1.0) }
+
+        val state = r.captureState()
+
+        fun collectSamples(): List<Double> {
+            val out = mutableListOf<Double>()
+            repeat(5) { out += r.normal(0.0, 1.0) }
+            repeat(5) { out += r.negexp(2.0) }
+            repeat(5) { out += r.exp(3.0) }
+            repeat(5) { out += r.uniform(1.0, 5.0) }
+            repeat(5) { out += if (r.draw(0.4)) 1.0 else 0.0 }
+            repeat(5) { out += r.randInt(0, 10).toDouble() }
+            repeat(5) { out += r.poisson(4.0).toDouble() }
+            repeat(5) { out += r.erlang(2.0, 3.0) }
+            return out
+        }
+
+        val first = collectSamples()
+        r.restoreState(state)
+        val second = collectSamples()
+
+        assertThat(second).isEqualTo(first)
+    }
+
+    /**
+     * The Marsaglia polar method generates two Gaussians per iteration and caches
+     * the second one. A naive seed-only capture would miss the cache, causing the
+     * very next [Random.normal] call after restore to return the cached value instead
+     * of re-generating from the restored seed.
+     *
+     * This test exercises exactly that edge case: capture state *after* the first
+     * Gaussian of a pair has been consumed (so the cache is populated), then verify
+     * that restoring and drawing again reproduces the cached value correctly.
+     */
+    @Test
+    fun captureAndRestoreIncludesGaussianCache() {
+        val r = Random(1234L)
+        // Consume the first normal of a pair; the second is now in the cache.
+        r.normal(0.0, 1.0)
+
+        val state = r.captureState()
+        val fromCache = r.normal(0.0, 1.0)       // returns cached value, clears cache
+        val afterCache = r.normal(0.0, 1.0)      // generates fresh pair
+
+        r.restoreState(state)
+        assertThat(r.normal(0.0, 1.0)).isEqualTo(fromCache)   // must match cached value
+        assertThat(r.normal(0.0, 1.0)).isEqualTo(afterCache)  // must match next generated
+    }
+
+    @Test
+    fun captureStateDoesNotMutateGenerator() {
+        val r = Random(55L)
+        repeat(10) { r.uniform(0.0, 1.0) }
+        val before = drawN(r, 5)
+        val r2 = Random(55L)
+        repeat(10) { r2.uniform(0.0, 1.0) }
+        r2.captureState() // capturing must not advance the generator
+        val after = drawN(r2, 5)
+        assertThat(after).isEqualTo(before)
+    }
 }
+
