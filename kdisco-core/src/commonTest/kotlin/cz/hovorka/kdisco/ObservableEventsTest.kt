@@ -101,4 +101,80 @@ class ObservableEventsTest {
         assertThat(firstCount.size).isGreaterThan(0)
         assertThat(secondCount.size).isEqualTo(firstCount.size)
     }
+
+    /**
+     * A discrete assignment to [Variable.state] from within a process emits exactly one
+     * [SimulationEvent.VariableChanged] per assignment, with correct old/new values.
+     */
+    @Test
+    fun discreteVariableAssignmentEmitsVariableChanged() = runTest {
+        val v = Variable(0.0)
+        val changes = mutableListOf<SimulationEvent.VariableChanged>()
+        runSimulation(endTime = 5.0) {
+            onEvent { (it as? SimulationEvent.VariableChanged)?.let(changes::add) }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    v.state = 1.0
+                    hold(1.0)
+                    v.state = 2.0
+                }
+            })
+        }
+        assertThat(changes.map { it.oldState }).isEqualTo(listOf(0.0, 1.0))
+        assertThat(changes.map { it.newState }).isEqualTo(listOf(1.0, 2.0))
+    }
+
+    /**
+     * Continuous integration must NOT flood listeners with [SimulationEvent.VariableChanged]
+     * for intermediate Runge-Kutta writes. The variable evolves, but zero events are emitted.
+     *
+     * Regression guard for the Critical issue where the setter lacked a `monitorActive` guard.
+     */
+    @Test
+    fun continuousIntegrationDoesNotEmitVariableChanged() = runTest {
+        val x = Variable(0.0)
+        val changes = mutableListOf<SimulationEvent.VariableChanged>()
+        val dynamics = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0 }
+        }
+        runSimulation(endTime = 5.0) {
+            onEvent { (it as? SimulationEvent.VariableChanged)?.let(changes::add) }
+            dtMax = 0.1
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start()
+                    dynamics.start()
+                    hold(5.0)
+                }
+            })
+        }
+        // The variable actually evolved (so the setter was exercised)...
+        assertThat(x.state).isGreaterThan(4.0)
+        // ...yet no VariableChanged events were emitted, because all writes happened
+        // during integration (monitorActive == true).
+        assertThat(changes).isEmpty()
+    }
+
+    /**
+     * A process activated from within another process's [Process.actions] must emit
+     * [SimulationEvent.ProcessActivated] exactly once — not twice (once on activate, once on run).
+     */
+    @Test
+    fun inRunActivationEmitsSingleProcessActivated() = runTest {
+        val events = mutableListOf<SimulationEvent>()
+        runSimulation(endTime = 10.0) {
+            onEvent { events.add(it) }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    Process.activate(object : Process() {
+                        override suspend fun actions() { hold(1.0) }
+                    })
+                    hold(2.0)
+                }
+            })
+        }
+        val activations = events.filterIsInstance<SimulationEvent.ProcessActivated>()
+        // One for the parent, one for the in-run-spawned child — not three.
+        assertThat(activations.size).isEqualTo(2)
+    }
 }

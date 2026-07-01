@@ -12,13 +12,21 @@ package cz.hovorka.kdisco
  */
 class Variable(initialState: Double = 0.0) : Link() {
 
-    /** The current value of the variable. */
+    /**
+     * The current value of the variable.
+     *
+     * Assigning to this property from within a discrete process (between integration steps)
+     * emits a [SimulationEvent.VariableChanged] to registered listeners. Writes performed by
+     * the continuous integrator during a step do **not** emit — those are intermediate Runge-Kutta
+     * values, not discrete events, and emitting them would flood listeners with meaningless events.
+     */
     var state: Double = initialState
         set(value) {
             if (field != value) {
                 val old = field
                 field = value
                 val ctx = Process.activeContext ?: return
+                if (ctx.monitorActive) return  // RKF45 intermediate/committed writes — not a discrete event
                 if (ctx.eventListeners.isEmpty()) return
                 val event = SimulationEvent.VariableChanged(ctx.currentTime, this, old, value)
                 ctx.eventListeners.forEach { it(event) }

@@ -2,6 +2,7 @@ package cz.hovorka.kdisco
 
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlin.concurrent.Volatile
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
@@ -24,6 +25,9 @@ class SimulationController {
 
     private var paused: Boolean = false
     private var stepsRequested: Int = 0
+
+    // Written by setThrottle() (control thread), read by applyThrottle() (simulation thread).
+    @Volatile
     private var throttleFactor: Double = 0.0
 
     private var wallClockStart: TimeMark = TimeSource.Monotonic.markNow()

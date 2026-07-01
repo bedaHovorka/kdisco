@@ -126,6 +126,46 @@ class ResourceTest {
     }
 
     /**
+     * A late arrival needing fewer units must not jump ahead of a waiter that needs more
+     * units than are currently free. Regression guard for the Resource queue-jumping fix:
+     * `reserve()` only takes immediately when the wait queue is empty.
+     */
+    @Test
+    fun lateArrivalDoesNotJumpWaitingProcess() = runTest {
+        val r = Resource(capacity = 3)
+        // Names of processes that completed reserve(), in completion order.
+        val reservedOrder = mutableListOf<String>()
+        runSimulation(endTime = 10.0) {
+            // Holder occupies 2 of 3 units, leaving 1 free; releases 1 at t=3.
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(2)
+                    hold(3.0)
+                    r.release(1)
+                }
+            })
+            // W0 needs 2 units; only 1 is free, so it must wait (ahead of any later arrival).
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(2)
+                    reservedOrder.add("W0")
+                }
+            })
+            // N arrives at t=1 needing only 1 unit. The 1 free unit could serve N, but W0 is
+            // already queued — N must not leapfrog W0.
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(1)
+                    reservedOrder.add("N")
+                }
+            }, delay = 1.0)
+        }
+        // With the fix: W0 is served first (at t=3, once the holder frees a unit) and N waits.
+        // Without the fix: N would grab the free unit at t=1, starving W0.
+        assertThat(reservedOrder).containsExactly("W0")
+    }
+
+    /**
      * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
      * behaviour on JS where whole numbers are rendered without `.0`.
      */

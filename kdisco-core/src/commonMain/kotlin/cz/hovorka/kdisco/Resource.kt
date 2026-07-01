@@ -46,7 +46,9 @@ class Resource(capacity: Int = 1) {
         val current = ctx.currentProcess as? Process
             ?: throw DiscoException("No current process")
 
-        if (isAvailable(amount)) {
+        // Only take units immediately if no one is already waiting — otherwise a late arrival
+        // needing fewer units could leapfrog a waiter that needs more than is currently free.
+        if (isAvailable(amount) && waiters.empty()) {
             occupied += amount
             if (ctx.eventListeners.isEmpty()) return
             val event = SimulationEvent.ResourceReserved(ctx.currentTime, current, this, amount)

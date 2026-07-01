@@ -212,10 +212,8 @@ abstract class Process : Link() {
             process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {
                 ctx.eventQueue.schedule(process, ctx.currentTime + delay)
-                if (ctx.eventListeners.isNotEmpty()) {
-                    val event = SimulationEvent.ProcessActivated(ctx.currentTime + delay, process)
-                    ctx.eventListeners.forEach { it(event) }
-                }
+                // ProcessActivated is emitted once by Simulation.run when this process first runs
+                // (the cont == null branch). Emitting here too would double-fire for in-run activations.
             } else {
                 ctx.pendingActivations.add(PendingActivation(process, delay))
             }
