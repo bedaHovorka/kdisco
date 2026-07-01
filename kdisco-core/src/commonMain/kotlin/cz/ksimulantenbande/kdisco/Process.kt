@@ -82,7 +82,7 @@ abstract class Process : Link() {
             }
             cont.invokeOnCancellation {
                 continuation = null
-                _state = ProcessState.PASSIVATED
+                _state = ProcessState.TERMINATED
                 context.eventQueue.remove(this@Process)
             }
         }
@@ -127,6 +127,7 @@ abstract class Process : Link() {
                 context.waitNotices.add(WaitNotice(this, condition))
                 cont.invokeOnCancellation {
                     continuation = null
+                    _state = ProcessState.TERMINATED
                     context.waitNotices.removeAll { it.process === this@Process }
                 }
             }
