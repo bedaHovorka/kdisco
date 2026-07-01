@@ -42,14 +42,14 @@ class LinuxX64SimulationTest {
 			dynamics = dynamics,
 			driver = object : Process() {
 				override suspend fun actions() {
-					assertThat(position.isActive()).isFalse()
-					assertThat(dynamics.isActive()).isFalse()
+					assertThat(position.isStarted()).isFalse()
+					assertThat(dynamics.isStarted()).isFalse()
 
 					position.start()
 					dynamics.start()
 
-					assertThat(position.isActive()).isTrue()
-					assertThat(dynamics.isActive()).isTrue()
+					assertThat(position.isStarted()).isTrue()
+					assertThat(dynamics.isStarted()).isTrue()
 
 					timeLog += time()
 
@@ -79,8 +79,8 @@ class LinuxX64SimulationTest {
 		assertThat(timeLog).isEqualTo(expectedTimes)
 		assertThat(velocityLog).isEqualTo(expectedVelocities)
 		assertThat(abs(position.state - expectedPosition)).isLessThan(1e-6)
-		assertThat(position.isActive()).isFalse()
-		assertThat(dynamics.isActive()).isFalse()
+		assertThat(position.isStarted()).isFalse()
+		assertThat(dynamics.isStarted()).isFalse()
 	}
 
 	@Test

@@ -39,3 +39,4 @@ kotlin-js-store/
 
 # Git worktrees
 .worktrees/
+/.kotlin
