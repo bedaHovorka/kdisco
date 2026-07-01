@@ -89,6 +89,9 @@ class Simulation internal constructor() {
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
      *   *previously* processed event (i.e. before the clock advances to the next event).
+     * @return `true` if the event queue drained naturally (no more events to process),
+     *   `false` if the simulation was stopped early via [stop] or the next event was
+     *   scheduled beyond [endTime].
      */
     suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null): Boolean {
         check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
@@ -105,6 +108,7 @@ class Simulation internal constructor() {
         val simJob = SupervisorJob()
         val simScope = CoroutineScope(Dispatchers.Unconfined + simJob)
 
+        var queueDrained = false
         try {
             // Move pending activations into the event queue
             val activations = context.pendingActivations.toList()
@@ -148,6 +152,7 @@ class Simulation internal constructor() {
                 // loop back to process them; otherwise we are truly done.
                 if (next == null) {
                     if (!context.eventQueue.isEmpty()) continue
+                    queueDrained = true
                     break
                 }
 
@@ -238,7 +243,7 @@ class Simulation internal constructor() {
             }
             context.eventQueue.clear()
         }
-        return true
+        return queueDrained
     }
 
     /**
@@ -246,6 +251,9 @@ class Simulation internal constructor() {
      *
      * The controller's [SimulationController.beforeEvent] hook is invoked once per
      * event-loop iteration before the next event is processed.
+     *
+     * @return `true` if the event queue drained naturally, `false` if stopped early.
+     * @see run
      */
     suspend fun run(endTime: Double, controller: SimulationController): Boolean =
         run(endTime) { controller.beforeEvent(this) }
@@ -254,6 +262,9 @@ class Simulation internal constructor() {
      * Runs the simulation under an external [SimulationController].
      *
      * This is a convenience overload equivalent to [run] with a controller argument.
+     *
+     * @return `true` if the event queue drained naturally, `false` if stopped early.
+     * @see run
      */
     suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
 
