@@ -49,7 +49,7 @@ Place `jdisco-1.2.0.jar` in `kdisco-core/libs/`, or publish jDisco to your local
 ### 2. Write a simulation
 
 ```kotlin
-import cz.hovorka.kdisco.*
+import cz.ksimulantenbande.kdisco.*
 
 class Customer : Process() {
     override fun actions() {
@@ -73,7 +73,7 @@ fun main() {
 ### 3. Continuous simulation example
 
 ```kotlin
-import cz.hovorka.kdisco.*
+import cz.ksimulantenbande.kdisco.*
 
 /** A simple exponential-decay process: dx/dt = -k*x */
 class Decay(private val k: Double, x0: Double) : Continuous() {
@@ -129,7 +129,7 @@ Simulation models often have shared resources (queues, monitors, statistics coll
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("cz.hovorka.kdisco:kdisco-koin:0.1.0-SNAPSHOT")
+    implementation("cz.ksimulantenbande.kdisco:kdisco-koin:0.1.0-SNAPSHOT")
 }
 ```
 
@@ -220,7 +220,7 @@ kdisco/
 │   ├── libs/
 │   │   └── jdisco-1.2.0.jar
 │   └── src/
-│       ├── commonMain/kotlin/cz/hovorka/kdisco/
+│       ├── commonMain/kotlin/cz/ksimulantenbande/kdisco/
 │       │   ├── Link.kt               # expect Link
 │       │   ├── Head.kt               # expect Head
 │       │   ├── Process.kt            # expect Process
@@ -229,20 +229,20 @@ kdisco/
 │       │   ├── Simulation.kt         # expect Simulation
 │       │   └── Extensions.kt         # DSL & Kotlin extensions
 │       ├── commonTest/
-│       ├── jvmMain/kotlin/cz/hovorka/kdisco/
+│       ├── jvmMain/kotlin/cz/ksimulantenbande/kdisco/
 │       │   └── Actuals.kt            # actual impls → jDisco
 │       └── jvmTest/
 └── kdisco-koin/
     ├── build.gradle.kts
     └── src/
-        ├── commonMain/kotlin/cz/hovorka/kdisco/koin/
+        ├── commonMain/kotlin/cz/ksimulantenbande/kdisco/koin/
         │   ├── Dsl.kt                # koinSimulation {}, sweep
         │   ├── KoinProcess.kt        # DI-aware Process
         │   ├── KoinContinuous.kt     # DI-aware Continuous
         │   ├── SimulationKoinContext.kt
         │   ├── SimulationModule.kt   # simulationModule {}
         │   └── SimulationScope.kt
-        ├── jvmMain/kotlin/cz/hovorka/kdisco/koin/
+        ├── jvmMain/kotlin/cz/ksimulantenbande/kdisco/koin/
         │   └── PlatformKoinContext.kt # InheritableThreadLocal
         └── jvmTest/
 ```
