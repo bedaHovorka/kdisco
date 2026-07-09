@@ -145,6 +145,15 @@ queue.asSequence().forEach { link -> /* ... */ }
 queue.asSequenceOf<Customer>().filter { it.priority > 3 }
 ```
 
+## Benchmarks
+
+`kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
+measures per-tick scheduling overhead for fast-sim-shaped workloads. Run it with:
+
+```bash
+./gradlew :kdisco-core:jvmTest --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
+```
+
 ## Koin Integration (`kdisco-koin`)
 
 The `kdisco-koin` module provides first-class [Koin](https://insert-koin.io/) dependency injection for simulations.

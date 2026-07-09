@@ -108,6 +108,7 @@ See `KoinSimulationTest.kt` for integration test patterns:
 - Use `simulationModule {}` to define DI modules
 - `KoinProcess` subclasses can use `by inject()` for dependencies
 - Test isolation by verifying each run gets unique singleton instances
+- `TickSchedulingBenchmark.kt` is the per-tick scheduling micro-benchmark used for fast-sim regression analysis. Run it with `./gradlew :kdisco-core:jvmTest --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"`.
 
 ## Code Examples
 
