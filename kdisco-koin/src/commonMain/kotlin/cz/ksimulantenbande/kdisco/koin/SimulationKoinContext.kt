@@ -78,11 +78,7 @@ class SimulationKoinContext(
             currentKoinContext = this@SimulationKoinContext
             simulationSetup()
         }
-        if (controller != null) {
-            newSim.run(endTime, controller)
-        } else {
-            newSim.run(endTime)
-        }
+        newSim.run(endTime, controller?.let { ctrl -> { ctrl.beforeEvent(newSim) } })
         return newSim
     }
 
