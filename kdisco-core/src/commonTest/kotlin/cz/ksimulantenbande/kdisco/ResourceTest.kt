@@ -272,6 +272,76 @@ class ResourceTest {
     }
 
     /**
+     * Regression test: a waiter terminated *after* being granted by [Resource.release]
+     * (but before its reactivation event runs) must not strand its grant forever.
+     *
+     * [Process.reactivate] doesn't run synchronously — it schedules the process's
+     * resumption as a normal-priority event. Per [EventQueue]'s documented FIFO
+     * ordering for same-time normal events (ascending insertion order), a process
+     * whose event was scheduled earlier in wall/insertion time — even if for the same
+     * simulated instant — runs first. So another process can be dispatched at the same
+     * simulated instant *between* `release()` granting a waiter and that waiter's own
+     * reactivation event actually running, and terminate it in that window: the
+     * grantee's units would otherwise be lost forever in [totalGranted] since a
+     * terminated process never re-enters [reserve] to collect them.
+     *
+     * Construction: `a`, `b`, `terminator`, `c` are all activated at t=0 in that order.
+     * `a` reserves the only unit then holds 5.0 (scheduling its own resume first,
+     * lowest insertion order among the t=5 events). `terminator` holds 5.0 too, but its
+     * hold-resume is scheduled *after* `a`'s during the t=0 dispatch batch, so its
+     * insertion order is higher than `a`'s but still lower than any event `release()`
+     * creates later. At t=5, `a` runs first, releases, and grants `b` (scheduling `b`'s
+     * reactivation with a fresh, higher insertion order). `terminator` runs next
+     * (its insertion order is lower than b's freshly-created one) and terminates `b`
+     * before `b`'s reactivation event fires — reproducing the race.
+     */
+    @Test
+    fun reserveReclaimsGrantIfGranteeTerminatesBeforeCollecting() = runTest {
+        val r = Resource(capacity = 1)
+        lateinit var b: Process
+        val log = mutableListOf<String>()
+
+        val a = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1)
+                hold(5.0)
+                r.release(1) // grants b's queued slot at t=5
+            }
+        }
+        b = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1) // queued behind a; granted at t=5 but terminated before resuming
+                log.add("b-acquired")
+            }
+        }
+        val terminator = object : Process() {
+            override suspend fun actions() {
+                hold(5.0) // scheduled after `a`'s hold during the t=0 batch: higher order than a's,
+                          // but still lower than b's reactivation (created later, during a's release()).
+                b.terminate()
+            }
+        }
+        val c = object : Process() {
+            override suspend fun actions() {
+                hold(6.0)
+                r.reserve(1)
+                log.add("c-acquired")
+            }
+        }
+
+        runSimulation(endTime = 20.0) {
+            Process.activate(a)
+            Process.activate(b)
+            Process.activate(terminator)
+            Process.activate(c)
+        }
+
+        // b must never acquire (terminated before it could collect its grant); c must
+        // still be able to, proving the unit wasn't permanently stranded in totalGranted.
+        assertThat(log).containsExactly("c-acquired")
+    }
+
+    /**
      * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
      * behaviour on JS where whole numbers are rendered without `.0`.
      */

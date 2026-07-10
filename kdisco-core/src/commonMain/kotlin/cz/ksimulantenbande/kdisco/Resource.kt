@@ -43,6 +43,22 @@ class Resource(capacity: Int = 1) {
     private var totalGranted: Int = 0
 
     /**
+     * Removes any [granted] entries whose grantee terminated before it could re-enter
+     * [reserve] to collect its units. This happens when a waiter is granted units by
+     * [release] (which schedules its reactivation) but something else terminates it
+     * before its reactivation event runs — e.g. another process scheduled for the same
+     * simulated instant with a lower event-queue insertion order calls [Process.terminate]
+     * on it first, which removes its pending reactivation event entirely. Without this
+     * reclaim, those units would stay booked in [totalGranted] forever.
+     */
+    private fun reclaimTerminatedGrants() {
+        val dead = granted.keys.filter { it.terminated() }
+        for (p in dead) {
+            totalGranted -= granted.remove(p)!!
+        }
+    }
+
+    /**
      * Returns true if [amount] units can be reserved right now (ignoring queue state).
      */
     fun isAvailable(amount: Int = 1): Boolean {
@@ -74,6 +90,8 @@ class Resource(capacity: Int = 1) {
             }
             return
         }
+
+        reclaimTerminatedGrants()
 
         // Only take units immediately if:
         //  - no process is already waiting (fairness: no leapfrogging), and
@@ -110,6 +128,8 @@ class Resource(capacity: Int = 1) {
             val event = SimulationEvent.ResourceReleased(ctx.currentTime, current, this, amount)
             ctx.eventListeners.forEach { it(event) }
         }
+
+        reclaimTerminatedGrants()
 
         // Reactivate waiters in FIFO order, pre-granting each one's requested units.
         // Stop at the first head waiter whose request exceeds the truly free capacity so
