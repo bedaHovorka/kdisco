@@ -54,4 +54,19 @@ class MultiProcessTest {
         }
         assertThat(peak).isGreaterThanOrEqualTo(3)
     }
+
+    @Test
+    fun activeProcessCountIsZeroAfterSimulationCompletes() = runTest {
+        val sim = Simulation.create {
+            repeat(3) { i ->
+                Process.activate(object : Process() {
+                    override suspend fun actions() {
+                        hold(i * 1.0 + 1.0)
+                    }
+                })
+            }
+        }
+        sim.run(100.0)
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
+    }
 }

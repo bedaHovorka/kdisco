@@ -182,6 +182,7 @@ class Simulation internal constructor() {
             }
         } finally {
             context.isRunning = false
+            context.currentProcess = null
             Process.activeContext = previousContext
             // Cancel any remaining suspended coroutines (passivated processes that
             // were never reactivated, or processes whose hold() time is past endTime).
