@@ -97,7 +97,7 @@ is a single null check per tick — zero share.
 ## 4. Measured numbers
 
 Micro-benchmark: `kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
-(run with `./gradlew :kdisco-core:jvmTest --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"`).
+(run with `./gradlew :kdisco-core:jvmTest -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"`).
 
 Environment: OpenJDK Temurin 17.0.19, AMD EPYC 7763 (4 vCPU, GitHub-hosted runner),
 Kotlin 2.1.10, kDisco 0.6.0. Warm-up pass of 50 000 ticks before measurement.
@@ -168,8 +168,12 @@ events the total engine time is single-digit milliseconds either way.
 
 ## 7. Reproduction
 
+The primary target is `linuxX64Test` (native, closest to real hardware perf); the
+numbers in §4 above were originally measured on `jvmTest` (JIT-warmed JVM), which
+remains available as a comparison point:
+
 ```bash
-./gradlew :kdisco-core:jvmTest --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
 # per-pattern ns/tick figures are printed to the test stdout
 ```
 

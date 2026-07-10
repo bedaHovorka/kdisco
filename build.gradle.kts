@@ -23,4 +23,14 @@ subprojects {
     tasks.withType<Test> {
         useJUnitPlatform()
     }
+
+    // TickSchedulingBenchmark drives up to 1M simulated ticks per pattern — fine as a
+    // JVM micro-benchmark but too slow/flaky under Kotlin/JS (browser+node) and prone
+    // to timing variance in CI. Exclude it from default test runs on every target;
+    // opt in with -PrunBenchmarks=true.
+    tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask> {
+        if (!project.hasProperty("runBenchmarks")) {
+            filter.excludeTestsMatching("cz.hovorka.kdisco.TickSchedulingBenchmark")
+        }
+    }
 }

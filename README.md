@@ -148,11 +148,18 @@ queue.asSequenceOf<Customer>().filter { it.priority > 3 }
 ## Benchmarks
 
 `kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
-measures per-tick scheduling overhead for fast-sim-shaped workloads. Run it with:
+measures per-tick scheduling overhead for fast-sim-shaped workloads. It's excluded from
+default `build`/`test`/`allTests` runs (including CI) because its iteration counts (up
+to 1M ticks) are too slow/flaky under Kotlin/JS and prone to CI timing variance. The
+primary target is `linuxX64Test` (native, closest to real hardware perf — this pulls in
+the extra `linkDebugTestLinuxX64` compile/link task automatically before the test binary
+runs):
 
 ```bash
-./gradlew :kdisco-core:jvmTest --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
 ```
+
+It can also be run on `jvmTest` the same way for a JIT-warmed comparison point.
 
 ## Koin Integration (`kdisco-koin`)
 
