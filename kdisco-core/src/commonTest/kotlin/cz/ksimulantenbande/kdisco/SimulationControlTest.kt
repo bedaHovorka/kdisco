@@ -93,6 +93,33 @@ class SimulationControlTest {
     }
 
     @Test
+    fun preRunStepLetsThroughExactlyOneEvent() = runTest {
+        // step() called before run() (no preceding pause()): stepsRequested=1, channel has a token.
+        // The step branch in beforeEvent() skips receive(), so the token must be drained there
+        // to prevent it from unblocking the very next receive() call.
+        val controller = SimulationController()
+        val log = mutableListOf<Double>()
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    repeat(3) {
+                        log.add(time())
+                        hold(1.0)
+                    }
+                }
+            })
+        }
+        controller.step()
+        val job = launch { sim.run(10.0, controller) }
+        yield()
+        // Exactly one event must have run; simulation must now be paused.
+        assertThat(log).containsExactly(0.0)
+        assertThat(controller.isPaused()).isTrue()
+        controller.resume()
+        job.join()
+    }
+
+    @Test
     fun throttleApproximatesRealTimeFactor() = runTest {
         val controller = SimulationController()
         val sim = Simulation.create {

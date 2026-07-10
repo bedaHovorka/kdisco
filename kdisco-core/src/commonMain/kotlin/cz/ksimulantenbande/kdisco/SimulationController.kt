@@ -84,7 +84,12 @@ class SimulationController {
 
         if (stepsRequested > 0) {
             stepsRequested--
-            if (stepsRequested == 0) paused = true
+            if (stepsRequested == 0) {
+                paused = true
+                // Drain the token placed by step() that was never consumed by receive()
+                // (the step branch skips receive()), so it can't bleed into the next pause.
+                while (pauseChannel.tryReceive().isSuccess) {}
+            }
         }
 
         applyThrottle(simulation.time())
