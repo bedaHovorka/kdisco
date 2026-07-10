@@ -342,6 +342,45 @@ class ResourceTest {
     }
 
     /**
+     * Calling [Resource.release] from [Continuous.derivatives] must throw [DiscoException].
+     *
+     * Regression guard for Issue #58: `release()` lacked a `monitorActive` guard, so calling
+     * it during RKF45 integration could corrupt accounting (the integrator invokes
+     * `derivatives()` multiple times per step, including for rejected trial steps).
+     */
+    @Test
+    fun releaseFromDerivativesThrowsDiscoException() = runTest {
+        val r = Resource()
+        var thrownException: Throwable? = null
+
+        val dynamics = object : Continuous() {
+            override fun derivatives() {
+                try {
+                    r.release()
+                } catch (e: DiscoException) {
+                    thrownException = e
+                }
+            }
+        }
+
+        runSimulation(endTime = 5.0) {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve()
+                    dynamics.start()
+                    hold(1.0)
+                    dynamics.stop()
+                    r.release()
+                }
+            })
+        }
+
+        assertThat(thrownException).isNotNull()
+        assertThat(thrownException!!.message).isNotNull()
+        assertThat(thrownException!!.message!!).contains("release")
+    }
+
+    /**
      * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
      * behaviour on JS where whole numbers are rendered without `.0`.
      */
