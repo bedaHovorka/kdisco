@@ -169,6 +169,54 @@ class ResourceTest {
     }
 
     /**
+     * Regression guard for the release()-over-reactivation bug (issue #57):
+     * when waiters request different amounts, a release() that frees fewer units
+     * than the head waiter needs must not wake any process, and must not strand
+     * capacity or deadlock later waiters.
+     *
+     * Scenario: capacity=3, fully occupied. W1 wants all 3 units, W2 wants 1.
+     * release(1) at t=1 frees only 1 unit — not enough for W1 — so nobody is
+     * woken. release(2) at t=2 brings total free to 3, enough for W1; W1 gets
+     * served first (FIFO), then W2 gets its unit once W1 releases.
+     */
+    @Test
+    fun releaseDoesNotStrandCapacityWithMixedAmountWaiters() = runTest {
+        val r = Resource(capacity = 3)
+        val log = mutableListOf<String>()
+        runSimulation(endTime = 20.0) {
+            // Holder occupies all 3 units; releases 1 at t=1, then 2 more at t=2.
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(3)
+                    hold(1.0)
+                    r.release(1)
+                    hold(1.0)
+                    r.release(2)
+                }
+            })
+            // W1 wants all 3 units (enqueued ahead of W2).
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(3)
+                    log.add("W1-${fmt(time())}")
+                    r.release(3)
+                }
+            })
+            // W2 wants just 1 unit but arrives behind W1 in the queue.
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(1)
+                    log.add("W2-${fmt(time())}")
+                    r.release(1)
+                }
+            })
+        }
+        // W1 must be served first (FIFO) at t=2 when all 3 units become free.
+        // W2 gets its unit after W1 releases at t=2.
+        assertThat(log).containsExactly("W1-2.0", "W2-2.0")
+    }
+
+    /**
      * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
      * behaviour on JS where whole numbers are rendered without `.0`.
      */
