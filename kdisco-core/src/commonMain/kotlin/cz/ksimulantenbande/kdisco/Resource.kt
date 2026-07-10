@@ -41,11 +41,16 @@ class Resource(capacity: Int = 1) {
     /**
      * Atomically occupy [amount] units. If unavailable, the current process is
      * passivated and placed in the wait queue.
+     *
+     * Must only be called from a discrete process (not during continuous integration).
+     *
+     * @throws DiscoException if called during integration.
      */
     suspend fun reserve(amount: Int = 1) {
         require(amount > 0) { "Amount must be positive, got $amount" }
         require(amount <= capacity) { "Amount $amount exceeds capacity $capacity" }
         val ctx = Process.activeContext ?: throw DiscoException("Not inside a simulation")
+        if (ctx.monitorActive) throw DiscoException("Illegal call of reserve (class Resource)")
         val current = ctx.currentProcess as? Process
             ?: throw DiscoException("No current process")
 
@@ -69,11 +74,20 @@ class Resource(capacity: Int = 1) {
     /**
      * Release [amount] units and reactivate waiting processes as long as units
      * remain available.
+     *
+     * Must only be called from a discrete process (not during continuous integration).
+     * Calling this from [Continuous.derivatives] would corrupt resource accounting:
+     * the RKF45 adaptive integrator may call [Continuous.derivatives] multiple times
+     * per step (including for rejected trial steps), so any side-effect here would be
+     * replayed or undone in an uncontrolled way.
+     *
+     * @throws DiscoException if called during integration.
      */
     fun release(amount: Int = 1) {
         require(amount > 0) { "Amount must be positive, got $amount" }
         require(amount <= occupied) { "Cannot release $amount, only $occupied occupied" }
         val ctx = Process.activeContext ?: throw DiscoException("Not inside a simulation")
+        if (ctx.monitorActive) throw DiscoException("Illegal call of release (class Resource)")
         val current = ctx.currentProcess as? Process
             ?: throw DiscoException("No current process")
         occupied -= amount
