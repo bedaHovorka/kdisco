@@ -4,7 +4,7 @@ plugins {
 }
 
 allprojects {
-    group = "cz.hovorka.kdisco"
+    group = "cz.ksimulantenbande.kdisco"
 
     repositories {
         mavenCentral()

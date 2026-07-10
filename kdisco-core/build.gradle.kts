@@ -3,7 +3,7 @@ plugins {
     `maven-publish`
 }
 
-group = "cz.hovorka.kdisco"
+group = "cz.ksimulantenbande.kdisco"
 
 kotlin {
     compilerOptions {
@@ -86,7 +86,7 @@ kotlin {
 
 // Uncomment when Android SDK is available:
 // android {
-//     namespace = "cz.hovorka.kdisco"
+//     namespace = "cz.ksimulantenbande.kdisco"
 //     compileSdk = 34
 //     defaultConfig {
 //         minSdk = 21
