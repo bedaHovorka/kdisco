@@ -1,34 +1,42 @@
 # kDisco Per-Tick Scheduling Cost Analysis (Issue #55)
 
-**Date:** 2026-07-09
-**Companion to:** interlockSim SP0.13 ([bedaHovorka/interlockSim#738](https://github.com/bedaHovorka/interlockSim/issues/738))
+**Date:** 2026-07-09 (revised 2026-07-10: re-baselined on `linuxX64` native + recalibrated to `shuntingLoop 300`)
+**Companion to:** interlockSim SP0.13 ([bedaHovorka/interlockSim#738](https://github.com/bedaHovorka/interlockSim/issues/738)) — see the [instrumentation proposal comment](https://github.com/bedaHovorka/interlockSim/issues/738#issuecomment-4931473954) for how the real 300-run event count will be captured
 **kDisco version analysed:** 0.6.0 (the exact version pinned at both the interlockSim
 baseline `c3eb0f66` and the regressed tip — the version confound is already ruled out)
 
 ## 1. Purpose
 
-interlockSim's `fast-sim example shuntingLoop 60` regressed ~0.2 s → ~0.6 s wall time.
-This report is the kDisco-side preparation for SP0.13: a deep static analysis of every
-kDisco code path executed per fast-sim tick, plus micro-benchmark measurements that
-quantify the *maximum possible* kDisco-scheduling share of that regression — so that
-SP0.13's Phase-1 tick-level instrumentation numbers can be compared against a known
-engine baseline.
+interlockSim's `fast-sim example shuntingLoop 300` regressed ~0.2 s → ~0.6 s wall time
+(the CI-standard run; `shuntingLoop 60` is a shorter variant). This report is the
+kDisco-side preparation for SP0.13: a deep static analysis of every kDisco code path
+executed per fast-sim tick, plus micro-benchmark measurements that bound the
+kDisco-scheduling share of that regression — so that SP0.13's Phase-1 tick-level
+instrumentation numbers can be compared against a known engine baseline.
 
 ## 2. TL;DR / Verdict
 
-**kDisco per-tick scheduling cost is ~1.5–4 µs per tick on the JVM.** For a fast-sim run
-in the shuntingLoop-60 range (order of 10²–10⁴ `hold(1.0)` ticks), the entire kDisco
-engine share is **well under ~40 ms even in the most pessimistic pattern** — roughly two
-orders of magnitude below the observed ~400 ms regression. Unless interlockSim performs
-tens of thousands of `activate`/`reactivate` calls *per tick*, kDisco scheduling cannot
-be a material share of the regression. This is consistent with the SP0.7 suspicion
-(eager per-tick observation building on the interlockSim side: two full `snapshot()`
-calls + six unconditional `findNextReservationTarget` graph walks per tick).
+**On the native `linuxX64` target (the fast-sim CLI's actual runtime — no JIT), kDisco
+per-tick scheduling cost is ~1.9–5.5 µs per event** across the measured shapes, vs
+~0.5–1.1 µs on the JVM (~3–5× no-JIT penalty). For a `shuntingLoop 300` run, projecting
+onto a **pessimistic ~50 000 engine-event bound** (5× linear scale of the 60-scenario's
+10 000 floor — the real 300-run count is not yet measured; see the #738 instrumentation
+proposal), the kDisco share is **~94–275 ms** (realistic, lower event count ~36–72 ms),
+versus the ~400 ms regression. That is **sub-regression but no longer negligible** — at
+the pessimistic bound it is on the order of a quarter to two-thirds of the regression,
+not "two orders of magnitude below" as the earlier JVM-only, `shuntingLoop 60` framing
+suggested.
 
-**Expected SP0.13 outcome for issue #55:** close as not-applicable, using the numbers in
-§4 as the exonerating engine baseline — unless Phase-1 instrumentation shows a kDisco
-share ≥ tens of milliseconds, in which case §6 lists the concrete engine hotspots to
-attack, in priority order.
+This is still consistent with the SP0.7 suspicion (eager per-tick observation building on
+the interlockSim side: two full `snapshot()` calls + six unconditional
+`findNextReservationTarget` graph walks per tick) being the *largest* share, but it means
+the kDisco engine share cannot be ruled out as immaterial without the measured count.
+
+**Disposition for issue #55 remains blocked on SP0.13 Phase-1** (interlockSim#738), per
+the issue's "do not start until" clause: the projection here uses a *projected* event
+count, and the native per-tick numbers show the share is sensitive enough to that count
+that the close-vs-optimize call must wait for the real #738 number. §6 lists the concrete
+engine hotspots to attack, in priority order, *if* a material share is confirmed.
 
 ## 3. Static analysis: what kDisco executes per tick
 
@@ -70,18 +78,21 @@ nursery-GC noise; it only matters at 10⁶+ events.
   coroutine creation (~1–2 µs, dominated by coroutine machinery — measured in §4).
 - `reactivate` (`Process.kt:229–240`): `waitNotices.removeAll { ... }` **O(w) scan with
   lambda allocation** + `eventQueue.remove(process)` **O(n) `removeAll` scan with lambda
-  allocation** + re-schedule. Two full-list scans per call even when the lists are empty
-  or the process is not queued. This is the least efficient per-tick primitive, but still
-  only ~3.2 µs measured.
+  allocation** + re-schedule. Two unconditional `removeAll` calls per call, each
+  allocating a capturing lambda even when the lists are empty (the scans themselves are
+  0-iteration on an empty list) or the process is not queued. This is the least efficient
+  per-tick primitive — ≈4 µs/tick native in the reactivate-churn pattern (§4).
 
 ### `Continuous` bookkeeping (only if interlockSim starts any `Continuous`)
 
 When `firstCont != null`, every loop iteration calls
 `ContinuousMonitor.integrateUntil(nextEventTime)` (`Monitor.kt:50–88`). With the default
-`dtMax = 1.0` and a 1.0-time-unit tick, that is ≥1 full RKF45 step per tick: **6 stages ×
-`computeDerivatives()`** plus 6 intrusive-list sweeps over active `Variable`s
-(`RKF45.kt:58–207`). The integrator itself is allocation-free (all `k1..k6` are fields on
-`Variable`). Measured overhead: ~2.5 µs/tick extra over the pure-discrete ticker (§4).
+`dtMax = 1.0` and a 1.0-time-unit tick, that is ≥1 full RKF45 step per tick: **7
+`computeDerivatives()` evaluations** (k1 pre-integrate + 5 stages + 1 final recompute)
+and ~14 intrusive-list sweeps over active `Variable`s per accepted step (more if a step
+is rejected and retried; `RKF45.kt:58–207`). The integrator itself is allocation-free
+(all `k1..k6` are fields on `Variable`). Measured overhead: ~1.3 µs/tick extra natively
+(continuous pattern 3 180 ns vs single-ticker 1 872 ns, §4).
 If interlockSim's fast-sim does **not** use `Continuous`/`Variable` (expected), this path
 is a single null check per tick — zero share.
 
@@ -97,50 +108,94 @@ is a single null check per tick — zero share.
 ## 4. Measured numbers
 
 Micro-benchmark: `kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
-(run with `./gradlew :kdisco-core:jvmTest -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"`).
+(run with `./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info`;
+`--info` / the `runBenchmarks`-gated `testLogging.showStandardStreams` surfaces the per-pattern
+`ns/tick` lines to the console).
 
-Environment: measured by the authoring agent on a GitHub-hosted CI runner
-(OpenJDK Temurin 17.0.19, AMD EPYC 7763, 4 vCPU), Kotlin 2.1.10, kDisco 0.6.0.
-**These numbers are provisional** — order-of-magnitude only, pending
-re-verification on the maintainer's own laptop hardware before being treated
-as final input to the SP0.13 close/optimize decision. Warm-up pass of 50 000
-ticks before measurement.
+Environment: measured on the maintainer's hardware (Intel Arrow Lake, Fedora, Kotlin
+2.1.10, kDisco 0.6.0). **The primary target is `linuxX64` native** (the fast-sim CLI's
+actual runtime — no JIT); `jvmTest` is retained as a JIT-warmed comparison point. The
+earlier draft of this report quoted JVM-only figures from a GitHub CI EPYC runner
+(~1.5–4 µs/tick); those are superseded — the Arrow Lake JVM numbers below are ~3× lower
+than the CI EPYC JVM figures (hardware difference), and the native numbers are the
+authoritative basis for the verdict. Warm-up pass of 50 000 ticks before measurement.
 
-| Pattern (models fast-sim shape) | Ticks | Wall | ns/tick | ticks/s |
-|---|---|---|---|---|
-| Single ticker, `hold(1.0)` per tick | 1 000 000 | 1 544 ms | **1 544** | ~648 k |
-| 10 concurrent processes, `hold(1.0)` each | 1 000 000 | 1 681 ms | **1 681** | ~595 k |
-| Ticker spawning 1 short-lived process per tick (`activate` churn) | 500 000 | 1 838 ms | **3 676** | ~272 k |
-| Ticker waking a passivated worker per tick (`reactivate` churn) | 500 000 | 1 594 ms | **3 188** | ~314 k |
-| Ticker with 1 active `Continuous` + `Variable` (RKF45 per tick) | 50 000 | 203 ms | **4 060** | ~246 k |
+| Pattern (models fast-sim shape) | Ticks | Native ns/tick (linuxX64) | JVM ns/tick |
+|---|---|---|---|
+| Single ticker, `hold(1.0)` per tick | 1 000 000 | **1 872** | 502 |
+| 10 concurrent processes, `hold(1.0)` each | 1 000 000 | **2 065** | 589 |
+| Ticker spawning 1 short-lived process per tick (`activate` churn) | 500 000 | **5 502** | 1 112 |
+| Ticker waking a passivated worker per tick (`reactivate` churn) | 500 000 | **4 022** | 1 078 |
+| Ticker with 1 active `Continuous` + `Variable` (RKF45 per tick) | 50 000 | **3 180** | 880 |
+| Deep queue, N=100 resident processes (`removeFirst` depth-scaling) | 200 000 | **2 255** | 465 |
+| Deep queue, N=1 000 resident processes | 200 000 | **2 580** | 520 |
+| Deep queue, N=10 000 resident processes | 200 000 | **4 975** | 1 030 |
 
-Note: single-run `measureTime` figures on a shared CI runner — treat as order-of-magnitude
-(±20 %), which is sufficient for the share question below.
+The deep-queue pattern (§3 step 5 / §6 candidate #1) holds the event queue at depth ~N
+throughout and pops via *resume* from `hold` (no per-tick coroutine launch), so the
+`ns/tick` isolates the O(depth) `removeFirst()`+`schedule()` array-shift cost. It rises
+with N (native 2 255 → 2 580 → 4 975 at depth 100 → 1 000 → 10 000): the O(n) shift is
+real and grows, but it stays comparable to the fixed `hold()` cost until depth ~10 000 —
+i.e. `removeFirst` is a secondary term at shallow fast-sim depths and only dominates when
+the queue is genuinely deep.
+
+Note: single-run `measureTime` figures — treat as order-of-magnitude (±20 %), sufficient
+for the share question. Native (no JIT) shows ~3–5× higher per-tick cost than JVM for the
+allocation-heavy paths (`activate`/`reactivate`/`hold`), which is the key correction to
+the earlier JVM-only verdict.
 
 ### Projection onto the fast-sim regression
 
-`fast-sim example shuntingLoop 60` ⇒ order of 60–3 600 ticks (60 sim-time units at
-1.0-per-tick, possibly with sub-ticks/multiple processes). Worst-case projection using the
-most expensive measured pattern (4.1 µs/tick) **and** a pessimistic 10 000 engine events
-per run: **≈ 41 ms total kDisco share** — vs. a ~400 ms regression. Realistic share
-(single ticker, ~60–3 600 events): **0.1–6 ms**. The regression is therefore ≥ 90–99 %
-attributable to non-kDisco (interlockSim-side) per-tick work, matching the SP0.7
-snapshot/graph-walk hypothesis.
+`fast-sim example shuntingLoop 300` ⇒ ~300 main driver ticks (300 sim-time units at
+1.0-per-tick), each dispatching trains / InOutWorkers, so the engine-event count is a
+multiple of 300 — the **real total is not yet measured** (it is the deliverable of the
+interlockSim#738 instrumentation proposal linked in the header). As a clearly-labeled
+**projected upper bound**, take the 60-scenario's pessimistic 10 000 engine-event floor
+and scale 5× → **~50 000 engine events** for the 300-run; a realistic lower estimate is
+~300–18 000 events (300 main ticks × a few events each).
+
+Using **native** per-tick cost (the fast-sim CLI runs native):
+
+- Pessimistic (most expensive native shape, `activate`-churn 5.5 µs/event × 50 000):
+  **≈ 275 ms** kDisco share.
+- Realistic (single-ticker hold + occasional activate/reactivate, ~2–4 µs/event ×
+  ~18 000): **≈ 36–72 ms**.
+- Lower bound (pure hold 1.9 µs/event × 50 000): **≈ 94 ms**.
+
+vs. the ~400 ms regression. So the projected kDisco share spans **~36–275 ms** depending
+on the (unmeasured) event count and per-tick shape — sub-regression in all cases, but at
+the pessimistic bound on the order of a quarter to two-thirds of the regression, **not**
+the "≥ 90–99 % non-kDisco" conclusion the earlier JVM-only / `shuntingLoop 60` framing
+gave. The SP0.7 eager-observation hypothesis remains the likely *largest* share, but the
+kDisco share is sensitive enough to the real event count that the close-vs-optimize
+disposition must wait for the #738 measurement rather than be read off this projection.
 
 ## 5. How to read SP0.13 Phase-1 numbers against this baseline
 
 SP0.13 wraps `iteration()` phases with cumulative timers. Interpretation guide:
 
-- The kDisco-scheduling share is bounded by *(engine events per run)* × *(≈1.5–4 µs)*.
-  Compute engine events as: driver `hold`s + `activate`s + `reactivate`s + wait-until
-  wakeups per run (`Simulation.scheduledEventCount()` / `activeProcessCount()` can help
-  audit this live).
-- If the timer bracketing the `hold(1.0)`/scheduler boundary reports **< ~40 ms**
-  cumulative, kDisco is exonerated → close kdisco#55 as not-applicable, citing this
-  report.
-- If it reports **≥ tens of ms**, first check for accidental engine-event inflation on
-  the interlockSim side (per-tick `reactivate` fan-out, `waitUntil` polling loops, or an
-  unintentionally started `Continuous`), then use §6.
+- The kDisco-scheduling share is bounded by *(engine events per run)* × *(native
+  ≈1.9–5.5 µs/event)*. The per-run **total** engine-event count must come from
+  instrumenting the `beforeEvent` hook (count invocations ≈ engine events + ≤2 terminal
+  iterations) — exactly the interlockSim#738 proposal linked in the header.
+- **Precision note on the kDisco count APIs:** `Simulation.scheduledEventCount()`
+  (`Simulation.kt:237–239`) and `activeProcessCount()` (`:241–245`) return
+  **instantaneous** queue/process depth at a moment in time, **not** a cumulative per-run
+  total. They are useful for sampling the *peak* queue depth (e.g. the `peakQueueDepth`
+  in the #738 patch), but they do not sum to the total events processed — that requires
+  the `beforeEvent` counter. Concretely: activations made before `run()` starts live in
+  `pendingActivations` (not the event queue), so pre-run `activeProcessCount() == N`
+  while `scheduledEventCount() == 0` for N pending processes — the two APIs measure
+  different sets, neither a run total.
+- Compare the #738-measured real 300-run event count × the native per-tick cost against
+  the ~400 ms regression. There is **no fixed "exonerated below X ms" threshold** — the
+  §4 projection (native × a projected ~50 000-event bound) already lands at ~94–275 ms,
+  so the disposition cannot be read off the projection; it depends on the real count.
+- If the real share turns out material (tens to hundreds of ms), first check for
+  accidental engine-event inflation on the interlockSim side (per-tick `reactivate`
+  fan-out, `waitUntil` polling loops, or an unintentionally started `Continuous`), then
+  use §6. Final disposition (optimize vs. close as not-applicable) stays **blocked on
+  SP0.13 Phase-1** per issue #55's "do not start until" clause.
 
 ## 6. kDisco-side optimization candidates (only if SP0.13 shows a material share)
 
@@ -149,7 +204,11 @@ Priority-ordered, with expected effect at high event counts:
 1. **`EventQueue.removeFirst()` O(n) shift** (`EventQueue.kt:40–42`):
    `ArrayList.removeAt(0)` shifts the whole backing array on every event. Replace with a
    binary min-heap or an index-based ring/deque. Biggest win when many processes keep
-   the queue deep; irrelevant for a 1–10-deep fast-sim queue.
+   the queue deep. **Now measured** by the deep-queue pattern (§4): native per-pop cost
+   rises from 2 255 ns at depth 100 to 4 975 ns at depth 10 000 — the O(depth) term is
+   real but stays secondary to the fixed `hold()` cost until depth ~10 000, so this is
+   only worth attacking if the #738 measurement shows the fast-sim queue running
+   genuinely deep (thousands), not at the 1–10-deep range.
 2. **`EventQueue.remove(process)` / `contains` linear scans with lambda `removeAll`**
    (`EventQueue.kt:34–38`): called by every `reactivate`, `terminate`, and hold-cancel.
    An explicit index loop (or a per-process "queued" flag/back-reference) removes both
@@ -167,30 +226,47 @@ Priority-ordered, with expected effect at high event counts:
    fast-sim actually starts a `Continuous`, in which case tune `dtMax` upward so RKF45
    takes one step per multi-tick span instead of ≥1 per tick.
 
-None of these are worth landing *speculatively* for fast-sim tick counts — at ≤10⁴
-events the total engine time is single-digit milliseconds either way.
+None of these are worth landing *speculatively* — the §4 projection (native, ~50 000-event
+bound) already puts the kDisco share at ~94–275 ms, so any optimization here should wait
+for the #738 real measurement to confirm which term dominates at the actual fast-sim depth
+and event count, rather than guessing.
 
 ## 7. Reproduction
 
-The primary target is `linuxX64Test` (native, closest to real hardware perf); the
-numbers in §4 above were originally measured on `jvmTest` (JIT-warmed JVM), which
-remains available as a comparison point:
+The primary target is `linuxX64Test` (native, the fast-sim CLI's runtime — no JIT);
+`jvmTest` is a JIT-warmed comparison point. `--info` (and the `runBenchmarks`-gated
+`testLogging.showStandardStreams` in `build.gradle.kts`) surface the per-pattern `ns/tick`
+lines to the console:
 
 ```bash
-./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
-# per-pattern ns/tick figures are printed to the test stdout
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
+# jvmTest comparison point (same command, swap the task):
+./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
 ```
 
-The five benchmark patterns intentionally mirror the interlockSim fast-sim shapes:
-single driver tick loop, co-scheduled entities, per-tick spawn, per-tick wake of a
-passivated worker, and a tick loop with continuous integration active.
+The six benchmark patterns intentionally mirror the interlockSim fast-sim shapes: single
+driver tick loop, co-scheduled entities, per-tick spawn, per-tick wake of a passivated
+worker, a tick loop with continuous integration active, and a deep-queue sweep
+(N=100/1 000/10 000 resident processes) isolating the `removeFirst()` depth-scaling. The
+benchmark is universal — pure commonTest, public APIs only — so it runs on every KMP
+target (JVM/JS/Native); it is excluded from default `build`/`test`/`allTests` (including
+CI) on every target and opt-in via `-PrunBenchmarks=true` because its iteration counts
+(up to 1 M ticks) are too slow/flaky under Kotlin/JS and prone to CI timing variance.
 
 ## 8. Acceptance mapping (issue #55)
 
 - [x] Deep analysis of kDisco per-tick scheduling paths (event loop, `hold(1.0)`,
   `Process.activate`, `Continuous` bookkeeping) — §3.
-- [x] Quantified engine baseline for comparison with SP0.13 Phase-1 instrumentation — §4/§5.
+- [x] Quantified engine baseline for comparison with SP0.13 Phase-1 instrumentation —
+  §4/§5. **Re-baselined on `linuxX64` native** (not JVM-only); verdict softened from
+  "close as not-applicable" to "blocked on SP0.13" after the native re-baseline moved
+  the projected share from ~40 ms to ~94–275 ms.
+- [x] `removeFirst()` O(n) depth-scaling **measured** (deep-queue pattern) — §4/§6.
+- [x] Instrumentation proposal to obtain the real `shuntingLoop 300` event count —
+  posted on [interlockSim#738](https://github.com/bedaHovorka/interlockSim/issues/738#issuecomment-4931473954).
 - [x] Specific, prioritized kDisco changes on file *if* a material share is shown — §6.
 - [ ] Final disposition (optimize vs. close as not-applicable) — **blocked on SP0.13
-  Phase-1 numbers**, per the issue's "do not start until" clause. This report is the
-  preparation so that disposition is a table lookup once those numbers land.
+  Phase-1 numbers** (the #738-measured real 300-run event count), per the issue's "do
+  not start until" clause. The native projection here (~94–275 ms at a projected ~50 000
+  events) is the preparation so that disposition is a table lookup once that real count
+  lands.

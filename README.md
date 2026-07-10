@@ -148,18 +148,23 @@ queue.asSequenceOf<Customer>().filter { it.priority > 3 }
 ## Benchmarks
 
 `kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
-measures per-tick scheduling overhead for fast-sim-shaped workloads. It's excluded from
-default `build`/`test`/`allTests` runs (including CI) because its iteration counts (up
-to 1M ticks) are too slow/flaky under Kotlin/JS and prone to CI timing variance. The
-primary target is `linuxX64Test` (native, closest to real hardware perf — this pulls in
-the extra `linkDebugTestLinuxX64` compile/link task automatically before the test binary
-runs):
+measures per-tick scheduling overhead for fast-sim-shaped workloads (six patterns:
+single driver tick loop, co-scheduled entities, per-tick spawn, per-tick wake of a
+passivated worker, a tick loop with continuous integration active, and a deep-queue
+sweep isolating `removeFirst()` depth-scaling). It's excluded from default
+`build`/`test`/`allTests` runs (including CI) on every target because its iteration
+counts (up to 1M ticks) are too slow/flaky under Kotlin/JS and prone to CI timing
+variance. The primary target is `linuxX64Test` (native, the fast-sim CLI's runtime —
+no JIT; this pulls in the extra `linkDebugTestLinuxX64` compile/link task automatically
+before the test binary runs). The `runBenchmarks`-gated `testLogging.showStandardStreams`
+in `build.gradle.kts` already prints the per-pattern `ns/tick` lines when
+`-PrunBenchmarks=true` is set; add `--info` if you also want Gradle's link progress:
 
 ```bash
-./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
+# jvmTest comparison point (JIT-warmed):
+./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
 ```
-
-It can also be run on `jvmTest` the same way for a JIT-warmed comparison point.
 
 ## Koin Integration (`kdisco-koin`)
 

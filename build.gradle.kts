@@ -31,6 +31,14 @@ subprojects {
     tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask> {
         if (!project.hasProperty("runBenchmarks")) {
             filter.excludeTestsMatching("cz.hovorka.kdisco.TickSchedulingBenchmark")
+        } else {
+            // Opt-in benchmark run: surface the benchmark's per-pattern ns/tick println
+            // output to the console (otherwise Gradle buries test stdout in the JUnit
+            // XML report). Gated on runBenchmarks so default build/test/CI is unaffected.
+            testLogging {
+                showStandardStreams = true
+                events("passed", "skipped", "failed", "standardOut", "standardError")
+            }
         }
     }
 }

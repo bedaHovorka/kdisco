@@ -4,6 +4,7 @@ import assertk.assertThat
 import assertk.assertions.*
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTime
 
 /**
@@ -151,8 +152,42 @@ class TickSchedulingBenchmark {
         return Result("continuous-ticker (1 Continuous, 1 Variable)", ticks, wallMs)
     }
 
+    /**
+     * Pattern 6: deep-queue cost — N resident processes each holding 1.0 per tick, so the
+     * event queue stays at depth ~N throughout the run. Every tick then pays both
+     * `EventQueue.removeFirst()` and the re-`schedule()` from `hold()` — each an O(depth)
+     * ArrayList array shift (report §6 candidate #1) — while the pop is a *resume* from
+     * `hold`, not a fresh coroutine launch, so the per-tick cost is not dominated by the
+     * fixed process-launch/terminate overhead the way a preload-drain would be.
+     *
+     * `ticksPerProcess` is sized so the total event count (`n * ticksPerProcess`) is held
+     * roughly constant across the N sweep; `ticks` is that total, so `ns/tick` is the
+     * steady-state per-pop cost at queue depth N. Compare across N: ns/tick rises with N
+     * (the O(depth) shift), once that term exceeds the fixed per-tick `hold()` cost.
+     */
+    private suspend fun runDeepQueue(n: Int, ticksPerProcess: Int): Result {
+        var executed = 0
+        val wallMs = measureTime {
+            runSimulation(endTime = n * ticksPerProcess + 1.0) {
+                repeat(n) {
+                    Process.activate(object : Process() {
+                        override suspend fun actions() {
+                            repeat(ticksPerProcess) {
+                                hold(1.0)
+                                executed++
+                            }
+                        }
+                    })
+                }
+            }
+        }.inWholeMilliseconds
+        val totalTicks = n * ticksPerProcess
+        assertThat(executed).isEqualTo(totalTicks)
+        return Result("deep-queue (N=$n, resident)", totalTicks, wallMs)
+    }
+
     @Test
-    fun perTickSchedulingCostBreakdown() = runTest {
+    fun perTickSchedulingCostBreakdown() = runTest(timeout = 120.seconds) {
         // Warm-up pass so JIT compilation does not dominate the measured runs.
         runSingleTicker(50_000)
 
@@ -161,7 +196,10 @@ class TickSchedulingBenchmark {
             runMultiTicker(processes = 10, ticksEach = 100_000),
             runActivateChurn(500_000),
             runReactivateChurn(500_000),
-            runContinuousTicker(50_000)
+            runContinuousTicker(50_000),
+            runDeepQueue(n = 100, ticksPerProcess = 2_000),
+            runDeepQueue(n = 1_000, ticksPerProcess = 200),
+            runDeepQueue(n = 10_000, ticksPerProcess = 20)
         )
         results.forEach { println(it) }
 
