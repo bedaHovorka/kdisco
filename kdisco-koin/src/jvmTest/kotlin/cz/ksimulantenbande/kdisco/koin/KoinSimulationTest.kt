@@ -8,6 +8,7 @@ import assertk.assertions.*
 import cz.ksimulantenbande.kdisco.Continuous
 import cz.ksimulantenbande.kdisco.Head
 import cz.ksimulantenbande.kdisco.Process
+import cz.ksimulantenbande.kdisco.SimulationController
 import kotlinx.coroutines.test.runTest
 import org.koin.core.parameter.parametersOf
 import org.koin.dsl.module
@@ -194,5 +195,29 @@ class KoinSimulationTest {
         }
 
         assertThat(tc!!.derivativesCallCount).isGreaterThan(0)
+    }
+
+    @Test
+    fun koinSimulationControllerIsThreadedThrough() = runTest {
+        val controller = SimulationController()
+        var stats: SimStats? = null
+
+        koinSimulation(shopModule, endTime = 50.0, controller = controller) {
+            stats = get()
+
+            val server: Server = get { parametersOf(1.0) }
+            val queue: ServiceQueue = get()
+            queue.server = server
+            Process.activate(server)
+
+            repeat(5) { i ->
+                val customer: Customer = get { parametersOf(i) }
+                Process.activate(customer, delay = i * 2.0)
+            }
+        }
+
+        // Simulation should run to completion as normal when controller is not paused.
+        assertThat(stats!!.arrivals.size).isEqualTo(5)
+        assertThat(stats!!.departures.size).isEqualTo(5)
     }
 }
