@@ -99,8 +99,12 @@ is a single null check per tick — zero share.
 Micro-benchmark: `kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
 (run with `./gradlew :kdisco-core:jvmTest -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark"`).
 
-Environment: OpenJDK Temurin 17.0.19, AMD EPYC 7763 (4 vCPU, GitHub-hosted runner),
-Kotlin 2.1.10, kDisco 0.6.0. Warm-up pass of 50 000 ticks before measurement.
+Environment: measured by the authoring agent on a GitHub-hosted CI runner
+(OpenJDK Temurin 17.0.19, AMD EPYC 7763, 4 vCPU), Kotlin 2.1.10, kDisco 0.6.0.
+**These numbers are provisional** — order-of-magnitude only, pending
+re-verification on the maintainer's own laptop hardware before being treated
+as final input to the SP0.13 close/optimize decision. Warm-up pass of 50 000
+ticks before measurement.
 
 | Pattern (models fast-sim shape) | Ticks | Wall | ns/tick | ticks/s |
 |---|---|---|---|---|

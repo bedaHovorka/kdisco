@@ -44,7 +44,7 @@ class TickSchedulingBenchmark {
                 })
             }
         }.inWholeMilliseconds
-        require(executed == ticks) { "expected $ticks ticks, got $executed" }
+        assertThat(executed).isEqualTo(ticks)
         return Result("single-ticker hold(1.0)", ticks, wallMs)
     }
 
@@ -66,7 +66,7 @@ class TickSchedulingBenchmark {
             }
         }.inWholeMilliseconds
         val total = processes * ticksEach
-        require(executed == total) { "expected $total ticks, got $executed" }
+        assertThat(executed).isEqualTo(total)
         return Result("multi-ticker x$processes hold(1.0)", total, wallMs)
     }
 
@@ -89,7 +89,7 @@ class TickSchedulingBenchmark {
                 })
             }
         }.inWholeMilliseconds
-        require(spawnedRuns == ticks) { "expected $ticks spawned runs, got $spawnedRuns" }
+        assertThat(spawnedRuns).isEqualTo(ticks)
         return Result("activate-churn (spawn per tick)", ticks, wallMs)
     }
 
@@ -117,7 +117,7 @@ class TickSchedulingBenchmark {
                 })
             }
         }.inWholeMilliseconds
-        require(wakes >= ticks - 1) { "expected ~$ticks wakes, got $wakes" }
+        assertThat(wakes).isGreaterThanOrEqualTo(ticks - 1)
         return Result("reactivate-churn (wake per tick)", ticks, wallMs)
     }
 
@@ -147,7 +147,7 @@ class TickSchedulingBenchmark {
                 })
             }
         }.inWholeMilliseconds
-        require(executed == ticks) { "expected $ticks ticks, got $executed" }
+        assertThat(executed).isEqualTo(ticks)
         return Result("continuous-ticker (1 Continuous, 1 Variable)", ticks, wallMs)
     }
 
