@@ -116,8 +116,19 @@ class Resource(capacity: Int = 1) {
         // that we never wake more processes than can actually be served: this prevents
         // capacity from being stranded when waiters request different amounts.
         var free = capacity - occupied - totalGranted
-        while (free > 0) {
+        while (true) {
             val next = waiters.first() as? Process ?: break
+            if (next.terminated()) {
+                // Process.terminate() doesn't unlink its Head/Link membership, so a waiter
+                // can be terminated while still queued here. Discard it without granting or
+                // counting it against `free` — Process.reactivate() would no-op on it anyway,
+                // and granting it first would strand its units in `totalGranted` forever
+                // since a terminated process never re-enters reserve() to collect them.
+                waitAmounts.remove(next)
+                next.out()
+                continue
+            }
+            if (free <= 0) break
             val needed = waitAmounts[next]
                 ?: error("Invariant violation: process $next is in the waiters queue but has no recorded reserve amount")
             if (needed > free) break

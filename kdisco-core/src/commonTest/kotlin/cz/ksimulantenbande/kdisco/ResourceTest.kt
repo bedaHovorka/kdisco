@@ -217,6 +217,61 @@ class ResourceTest {
     }
 
     /**
+     * Regression test: a waiter terminated while still queued must not strand capacity.
+     *
+     * [Process.terminate] does not unlink the process from any [Head]/[Link] it's a
+     * member of, so a terminated waiter can still be found by [Resource.release]'s
+     * reactivation loop. [Process.reactivate] no-ops on a terminated process, so if
+     * `release()` provisionally grants it units before checking termination, those
+     * units are never collected back (a terminated process never re-enters [reserve])
+     * and capacity is lost forever.
+     */
+    @Test
+    fun releaseSkipsTerminatedWaiterWithoutStrandingCapacity() = runTest {
+        val r = Resource(capacity = 1)
+        lateinit var b: Process
+        val log = mutableListOf<String>()
+
+        val a = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1)
+                hold(5.0)
+                r.release(1)
+            }
+        }
+        b = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1) // queues behind `a`; terminated before it can be granted
+                log.add("b-acquired")
+            }
+        }
+        val terminator = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                b.terminate()
+            }
+        }
+        val c = object : Process() {
+            override suspend fun actions() {
+                hold(6.0) // after a releases at t=5
+                r.reserve(1)
+                log.add("c-acquired")
+            }
+        }
+
+        runSimulation(endTime = 20.0) {
+            Process.activate(a)
+            Process.activate(b)
+            Process.activate(terminator)
+            Process.activate(c)
+        }
+
+        // b must never acquire (terminated before its turn); c must still be able to,
+        // proving the unit `a` released wasn't permanently stranded on b's dead grant.
+        assertThat(log).containsExactly("c-acquired")
+    }
+
+    /**
      * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
      * behaviour on JS where whole numbers are rendered without `.0`.
      */
