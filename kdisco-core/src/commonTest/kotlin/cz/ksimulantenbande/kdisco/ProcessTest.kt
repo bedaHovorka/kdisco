@@ -415,4 +415,19 @@ class ProcessTest {
         assertThat(p.isActive()).isFalse()
         assertThat(p.isPassivated()).isFalse()
     }
+
+    @Test
+    fun passivatedProcessIsTerminatedAfterSimulationEnd() = runTest {
+        val p = object : Process() {
+            override suspend fun actions() {
+                passivate()
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(p.isActive()).isFalse()
+        assertThat(p.isPassivated()).isFalse()
+    }
 }

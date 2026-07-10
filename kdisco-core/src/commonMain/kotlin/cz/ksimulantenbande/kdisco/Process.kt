@@ -102,6 +102,7 @@ abstract class Process : Link() {
             // Not scheduled in event queue — waits for reactivate()
             cont.invokeOnCancellation {
                 continuation = null
+                _state = ProcessState.TERMINATED
             }
         }
     }
