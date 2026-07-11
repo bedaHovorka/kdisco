@@ -137,8 +137,12 @@ internal class ContinuousMonitor(
         var anyCrossed = false
         val crossed = BooleanArray(notices.size)
         for (i in notices.indices) {
+            val g0 = guardsBefore[i]
             val g1 = notices[i].guard()
-            if (guardsBefore[i] * g1 < 0.0 || g1 == 0.0) {
+            // A crossing requires a strict sign change from a non-zero start (reaching the
+            // boundary exactly, g1 == 0.0, counts). A guard that is already zero at the step
+            // start is not treated as a crossing — it must first depart from the boundary.
+            if ((g0 > 0.0 && g1 <= 0.0) || (g0 < 0.0 && g1 >= 0.0)) {
                 crossed[i] = true
                 anyCrossed = true
             }

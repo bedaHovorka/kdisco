@@ -162,7 +162,9 @@ abstract class Process : Link() {
      * waitCrossing { boundary - position.state }
      * ```
      *
-     * @param tolerance absolute `|g|` threshold used to terminate root-finding early. Defaults to 1e-9.
+     * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
+     *   0.0 disables the early-out and relies on the bisection bracket collapsing to
+     *   floating-point resolution (still bounded). Defaults to 1e-9.
      * @param guard the event function `g(state, t)`; a sign change locates the event.
      *
      * Must only be called from within [actions] (i.e., from a running process).
