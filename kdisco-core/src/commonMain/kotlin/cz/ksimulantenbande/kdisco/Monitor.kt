@@ -164,10 +164,10 @@ internal class ContinuousMonitor(
 
         // Roll variable states back to the located crossing time and schedule the process there.
         probeStateAt(stepStart, bestTime)
-        notices.remove(notice)
         if (!context.eventQueue.contains(notice.process)) {
             context.eventQueue.schedule(notice.process, bestTime)
         }
+        notices.remove(notice)
         return true
     }
 
@@ -190,7 +190,8 @@ internal class ContinuousMonitor(
         var gLo = guardAtStart
         var iter = 0
         while (iter < MAX_BISECTION_ITERATIONS) {
-            val mid = 0.5 * (lo + hi)
+            // Numerically stable midpoint that always stays within [lo, hi].
+            val mid = lo + 0.5 * (hi - lo)
             // Stop once the bracket collapses to floating-point resolution.
             if (mid <= lo || mid >= hi) break
             probeStateAt(stepStart, mid)
