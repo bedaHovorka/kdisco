@@ -57,6 +57,10 @@ internal class SimulationContext {
     // Wait-until registry: processes suspended waiting for a condition to become true
     internal val waitNotices = mutableListOf<WaitNotice>()
 
+    // State-event registry: processes suspended waiting for a guard function to cross zero.
+    // Located precisely within an integration step by the ContinuousMonitor (root-finding).
+    internal val crossingNotices = mutableListOf<CrossingNotice>()
+
     /**
      * Checks all pending wait conditions. Any process whose condition is now satisfied
      * is scheduled in the event queue at the current simulation time.
@@ -85,4 +89,18 @@ internal class SimulationContext {
 internal class WaitNotice(
     val process: Process,
     val condition: Condition
+)
+
+/**
+ * A pending state event: a suspended [process] waiting for the [guard] function `g(state, t)`
+ * to change sign. The [ContinuousMonitor] evaluates [guard] across each integration step and,
+ * on a sign change, locates the crossing time by root-finding and resumes [process] there.
+ *
+ * @param tolerance the absolute value below which `|g|` is considered to be on the boundary,
+ *   used to terminate root-finding early.
+ */
+internal class CrossingNotice(
+    val process: Process,
+    val guard: () -> Double,
+    val tolerance: Double
 )

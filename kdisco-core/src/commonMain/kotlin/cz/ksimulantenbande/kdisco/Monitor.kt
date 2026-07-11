@@ -3,6 +3,8 @@
 // Author of jDisco: Keld Helsgaun, Roskilde University, Denmark. Email: keld@ruc.dk
 package cz.ksimulantenbande.kdisco
 
+import kotlin.math.abs
+
 /**
  * Strategy interface for numerical integration of continuous variables.
  *
@@ -41,6 +43,11 @@ internal class ContinuousMonitor(
     private val context: SimulationContext,
     internal var integrator: Integrator = RKF45Integrator()
 ) {
+    private companion object {
+        /** Upper bound on bisection iterations when locating a zero-crossing. */
+        const val MAX_BISECTION_ITERATIONS = 100
+    }
+
     /** Suggested step size for the next integration step (preserved across event boundaries). */
     internal var dtNext: Double = 0.0
 
@@ -58,6 +65,7 @@ internal class ContinuousMonitor(
         try {
             var dtNextLocal = dtNext
             while (context.currentTime < targetTime) {
+                val stepStart = context.currentTime
                 // Save old states and reset rates for this step
                 var v = context.firstVar
                 while (v != null) {
@@ -65,6 +73,9 @@ internal class ContinuousMonitor(
                     v.rate = 0.0
                     v = v._suc
                 }
+                // Sample guard values at the start of the step (states are at stepStart).
+                val guardsBefore = sampleGuards()
+
                 // Compute initial derivatives (k1 in RKF45, or rate for Euler)
                 computeDerivatives()
 
@@ -78,6 +89,12 @@ internal class ContinuousMonitor(
                 if (dtNow > remaining) dtNow = remaining
 
                 dtNextLocal = integrator.integrate(this, context, dtNow, targetTime)
+
+                // Locate any state event (zero-crossing) inside the accepted step. If one
+                // fired, integration is rolled back to the crossing time and the waiting
+                // process is scheduled there, so we stop this integration pass immediately.
+                if (guardsBefore != null && locateCrossings(stepStart, guardsBefore)) break
+
                 // Stop integration early if a wait-notice was satisfied so that the scheduler
                 // can process the newly-scheduled event with variable states that match currentTime.
                 val noticesBefore = context.waitNotices.size
@@ -88,6 +105,122 @@ internal class ContinuousMonitor(
         } finally {
             context.monitorActive = false
         }
+    }
+
+    /**
+     * Samples every registered [CrossingNotice.guard] at the current state, or returns null
+     * when there are no crossing notices (zero-overhead fast path).
+     */
+    private fun sampleGuards(): DoubleArray? {
+        val notices = context.crossingNotices
+        if (notices.isEmpty()) return null
+        return DoubleArray(notices.size) { notices[it].guard() }
+    }
+
+    /**
+     * Detects and locates state events within the step `[stepStart, currentTime]`.
+     *
+     * For every crossing notice whose guard changed sign relative to [guardsBefore], the
+     * crossing time is located by [locateCrossingTime]. The earliest such crossing wins:
+     * integration is rolled back to it, the notice is removed, and its process is scheduled
+     * at the crossing time.
+     *
+     * @return true if a crossing fired (integration must stop), false otherwise.
+     */
+    private fun locateCrossings(stepStart: Double, guardsBefore: DoubleArray): Boolean {
+        val notices = context.crossingNotices
+        if (notices.isEmpty()) return false
+
+        val stepEnd = context.currentTime
+        // First pass: evaluate all guards at the accepted step end (states are at stepEnd)
+        // before any root-finding probe mutates the state.
+        var anyCrossed = false
+        val crossed = BooleanArray(notices.size)
+        for (i in notices.indices) {
+            val g1 = notices[i].guard()
+            if (guardsBefore[i] * g1 < 0.0 || g1 == 0.0) {
+                crossed[i] = true
+                anyCrossed = true
+            }
+        }
+        if (!anyCrossed) return false
+
+        // Second pass: locate the crossing time for each crossing notice and keep the earliest.
+        var bestNotice: CrossingNotice? = null
+        var bestTime = Double.MAX_VALUE
+        for (i in notices.indices) {
+            if (!crossed[i]) continue
+            val tStar = locateCrossingTime(notices[i], stepStart, stepEnd, guardsBefore[i])
+            if (tStar < bestTime) {
+                bestTime = tStar
+                bestNotice = notices[i]
+            }
+        }
+        val notice = bestNotice ?: return false
+
+        // Roll variable states back to the located crossing time and schedule the process there.
+        probeStateAt(stepStart, bestTime)
+        notices.remove(notice)
+        if (!context.eventQueue.contains(notice.process)) {
+            context.eventQueue.schedule(notice.process, bestTime)
+        }
+        return true
+    }
+
+    /**
+     * Locates the time in `[stepStart, stepEnd]` at which [notice]'s guard crosses zero,
+     * using bisection. Each probe re-integrates from the saved pre-step state
+     * ([Variable._oldState]) to the candidate time via [probeStateAt].
+     *
+     * @param guardAtStart the guard value at [stepStart] (must be non-zero and opposite in
+     *   sign to the guard at [stepEnd]).
+     */
+    private fun locateCrossingTime(
+        notice: CrossingNotice,
+        stepStart: Double,
+        stepEnd: Double,
+        guardAtStart: Double
+    ): Double {
+        var lo = stepStart
+        var hi = stepEnd
+        var gLo = guardAtStart
+        var iter = 0
+        while (iter < MAX_BISECTION_ITERATIONS) {
+            val mid = 0.5 * (lo + hi)
+            // Stop once the bracket collapses to floating-point resolution.
+            if (mid <= lo || mid >= hi) break
+            probeStateAt(stepStart, mid)
+            val gMid = notice.guard()
+            if (gMid == 0.0 || abs(gMid) <= notice.tolerance) return mid
+            if (gLo * gMid < 0.0) {
+                hi = mid
+            } else {
+                lo = mid
+                gLo = gMid
+            }
+            iter++
+        }
+        return hi
+    }
+
+    /**
+     * Restores all active [Variable]s to their pre-step values and integrates a single step
+     * from [stepStart] to [targetTime], leaving [SimulationContext.currentTime] at [targetTime]
+     * and the variable states at their [targetTime] values.
+     *
+     * Because the enclosing full step was already accepted by the error controller, any
+     * sub-step is at least as accurate and is accepted without step reduction.
+     */
+    private fun probeStateAt(stepStart: Double, targetTime: Double) {
+        var v = context.firstVar
+        while (v != null) {
+            v.state = v._oldState
+            v.rate = 0.0
+            v = v._suc
+        }
+        context.currentTime = stepStart
+        computeDerivatives()
+        integrator.integrate(this, context, targetTime - stepStart, targetTime)
     }
 
     /**
