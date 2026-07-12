@@ -26,7 +26,11 @@ class SimulationController {
 
     private val pauseChannel = Channel<Unit>(Channel.CONFLATED)
 
+    // Written by pause()/resume()/step() (control thread), read by beforeEvent()
+    // (simulation thread) — same cross-thread pattern as throttleFactor below.
+    @Volatile
     private var paused: Boolean = false
+    @Volatile
     private var stepsRequested: Int = 0
 
     // Written by setThrottle() (control thread), read by applyThrottle() (simulation thread).
@@ -45,7 +49,7 @@ class SimulationController {
         stepsRequested = 0
         // Drain any stale signal left by a step()/resume() that fired while not paused,
         // so it cannot cause an unexpected immediate unpause on the next beforeEvent().
-        while (pauseChannel.tryReceive().isSuccess) {}
+        drainStaleSignal()
     }
 
     /** Resume normal execution. */
@@ -88,11 +92,17 @@ class SimulationController {
                 paused = true
                 // Drain the token placed by step() that was never consumed by receive()
                 // (the step branch skips receive()), so it can't bleed into the next pause.
-                while (pauseChannel.tryReceive().isSuccess) {}
+                drainStaleSignal()
             }
         }
 
         applyThrottle(simulation.time())
+    }
+
+    // pauseChannel is CONFLATED (capacity 1), so at most one stale token can ever be
+    // buffered — a single tryReceive() is sufficient to drain it.
+    private fun drainStaleSignal() {
+        pauseChannel.tryReceive()
     }
 
     private suspend fun applyThrottle(simTime: Double) {
