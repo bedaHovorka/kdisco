@@ -46,6 +46,9 @@ internal class ContinuousMonitor(
     private companion object {
         /** Upper bound on bisection iterations when locating a zero-crossing. */
         const val MAX_BISECTION_ITERATIONS = 100
+
+        /** Upper bound on re-integration sub-steps when probing a specific target time. */
+        const val MAX_PROBE_SUB_STEPS = 1_000
     }
 
     /** Suggested step size for the next integration step (preserved across event boundaries). */
@@ -108,13 +111,17 @@ internal class ContinuousMonitor(
     }
 
     /**
-     * Samples every registered [CrossingNotice.guard] at the current state, or returns null
-     * when there are no crossing notices (zero-overhead fast path).
+     * Samples every registered [CrossingNotice.guard] at the current state, paired with the
+     * notice itself, or returns null when there are no crossing notices (zero-overhead fast
+     * path). Pairing by object reference (rather than list position) keeps the "before" value
+     * correctly attached to its notice even if [SimulationContext.crossingNotices] is mutated
+     * later in the same step (e.g. a [Continuous.derivatives] override calling
+     * [Process.reactivate] on another process with a pending crossing notice).
      */
-    private fun sampleGuards(): DoubleArray? {
+    private fun sampleGuards(): List<Pair<CrossingNotice, Double>>? {
         val notices = context.crossingNotices
         if (notices.isEmpty()) return null
-        return DoubleArray(notices.size) { notices[it].guard() }
+        return notices.map { it to it.guard() }
     }
 
     /**
@@ -127,23 +134,22 @@ internal class ContinuousMonitor(
      *
      * @return true if a crossing fired (integration must stop), false otherwise.
      */
-    private fun locateCrossings(stepStart: Double, guardsBefore: DoubleArray): Boolean {
-        val notices = context.crossingNotices
-        if (notices.isEmpty()) return false
-
+    private fun locateCrossings(stepStart: Double, guardsBefore: List<Pair<CrossingNotice, Double>>): Boolean {
         val stepEnd = context.currentTime
         // First pass: evaluate all guards at the accepted step end (states are at stepEnd)
-        // before any root-finding probe mutates the state.
+        // before any root-finding probe mutates the state. Skip any notice no longer present
+        // in the live registry — it was removed mid-step (reactivate/terminate/cancellation)
+        // and must not be allowed to fire.
         var anyCrossed = false
-        val crossed = BooleanArray(notices.size)
-        for (i in notices.indices) {
-            val g0 = guardsBefore[i]
-            val g1 = notices[i].guard()
+        val crossed = mutableListOf<Pair<CrossingNotice, Double>>()
+        for ((notice, g0) in guardsBefore) {
+            if (!context.crossingNotices.contains(notice)) continue
+            val g1 = notice.guard()
             // A crossing requires a strict sign change from a non-zero start (reaching the
             // boundary exactly, g1 == 0.0, counts). A guard that is already zero at the step
             // start is not treated as a crossing — it must first depart from the boundary.
             if ((g0 > 0.0 && g1 <= 0.0) || (g0 < 0.0 && g1 >= 0.0)) {
-                crossed[i] = true
+                crossed.add(notice to g0)
                 anyCrossed = true
             }
         }
@@ -152,12 +158,11 @@ internal class ContinuousMonitor(
         // Second pass: locate the crossing time for each crossing notice and keep the earliest.
         var bestNotice: CrossingNotice? = null
         var bestTime = Double.MAX_VALUE
-        for (i in notices.indices) {
-            if (!crossed[i]) continue
-            val tStar = locateCrossingTime(notices[i], stepStart, stepEnd, guardsBefore[i])
+        for ((notice, g0) in crossed) {
+            val tStar = locateCrossingTime(notice, stepStart, stepEnd, g0)
             if (tStar < bestTime) {
                 bestTime = tStar
-                bestNotice = notices[i]
+                bestNotice = notice
             }
         }
         val notice = bestNotice ?: return false
@@ -167,7 +172,7 @@ internal class ContinuousMonitor(
         if (!context.eventQueue.contains(notice.process)) {
             context.eventQueue.schedule(notice.process, bestTime)
         }
-        notices.remove(notice)
+        context.crossingNotices.remove(notice)
         return true
     }
 
@@ -209,12 +214,15 @@ internal class ContinuousMonitor(
     }
 
     /**
-     * Restores all active [Variable]s to their pre-step values and integrates a single step
-     * from [stepStart] to [targetTime], leaving [SimulationContext.currentTime] at [targetTime]
+     * Restores all active [Variable]s to their pre-step values and integrates from
+     * [stepStart] to [targetTime], leaving [SimulationContext.currentTime] at [targetTime]
      * and the variable states at their [targetTime] values.
      *
-     * Because the enclosing full step was already accepted by the error controller, any
-     * sub-step is at least as accurate and is accepted without step reduction.
+     * The requested sub-step is normally well within what the error controller already
+     * accepted for the enclosing full step, but [Integrator.integrate] can still shrink it
+     * further (e.g. adverse local error growth at the probed sub-interval), leaving
+     * [SimulationContext.currentTime] short of [targetTime]. Loop, re-deriving and
+     * re-integrating the remaining distance, until [targetTime] is actually reached.
      */
     private fun probeStateAt(stepStart: Double, targetTime: Double) {
         var v = context.firstVar
@@ -225,7 +233,12 @@ internal class ContinuousMonitor(
         }
         context.currentTime = stepStart
         computeDerivatives()
-        integrator.integrate(this, context, targetTime - stepStart, targetTime)
+        var iterations = 0
+        while (context.currentTime < targetTime && iterations < MAX_PROBE_SUB_STEPS) {
+            integrator.integrate(this, context, targetTime - context.currentTime, targetTime)
+            iterations++
+            if (context.currentTime < targetTime) computeDerivatives()
+        }
     }
 
     /**

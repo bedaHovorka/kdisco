@@ -157,6 +157,15 @@ abstract class Process : Link() {
      *
      * Crossing detection requires at least one active [Continuous] process driving integration.
      *
+     * **Known limitation**: crossings are detected by comparing the guard's sign at the start
+     * and end of each accepted integration step. A guard that departs from and returns to zero
+     * *entirely within a single step* (e.g. an instantaneous reversal exactly at a boundary) is
+     * not detected, because both endpoints can show the same sign (or a start value of exactly
+     * zero, which this API deliberately excludes from the crossing test). This mirrors a known
+     * limitation of endpoint-based state-event location in ODE solvers generally; a model
+     * relying on detecting such same-step reversals needs a smaller `dtMax` around that
+     * boundary, same as the tiny-`dtMax` workaround this API otherwise replaces.
+     *
      * ```kotlin
      * // Resume exactly when the train front reaches the block boundary.
      * waitCrossing { boundary - position.state }
@@ -197,6 +206,8 @@ abstract class Process : Link() {
             context.eventListeners.forEach { it(event) }
         }
         context.eventQueue.remove(this)
+        continuation = null
+        context.crossingNotices.removeAll { it.process === this@Process }
         throw ProcessTerminatedException()
     }
 

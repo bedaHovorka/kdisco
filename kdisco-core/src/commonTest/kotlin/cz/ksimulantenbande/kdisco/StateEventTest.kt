@@ -212,4 +212,127 @@ class StateEventTest {
         // Integration still advanced normally.
         assertThat(x.state).isGreaterThanOrEqualTo(4.9)
     }
+
+    /**
+     * terminate() must clear the terminated process's crossing notice, mirroring what
+     * reactivate() already does. Otherwise a later genuine crossing resurrects the
+     * terminated process's coroutine past its waitCrossing() suspension point.
+     */
+    @Test
+    fun terminateWhileWaitingOnCrossingRemovesCrossingNotice() = runTest {
+        val x = Variable(0.0)
+        var resumedAfterTerminate = false
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0 }
+        }
+
+        lateinit var waiter: Process
+        runSimulation(endTime = 20.0) {
+            dtMax = 1.0
+            waiter = object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    waitCrossing { 5.0 - x.state }
+                    resumedAfterTerminate = true  // must NOT run: waiter was terminated at t=1
+                }
+            }
+            Process.activate(waiter)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    waiter.terminate()
+                }
+            })
+        }
+
+        assertThat(waiter.isTerminated()).isTrue()
+        assertThat(resumedAfterTerminate).isFalse()
+    }
+
+    /**
+     * A process suspended in waitCrossing() must be counted by activeProcessCount() — it is
+     * neither in the event queue nor passivated, but it is genuinely still active work.
+     */
+    @Test
+    fun activeProcessCountIncludesProcessesWaitingOnCrossing() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0 }
+        }
+        var countWhileWaiting = -1
+        lateinit var sim: Simulation
+
+        sim = Simulation.create {
+            dtMax = 1.0
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    waitCrossing { 5.0 - x.state }
+                    motion.stop(); x.stop()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    countWhileWaiting = sim.activeProcessCount()
+                }
+            })
+        }
+        sim.run(10.0)
+
+        // The waiting process (in crossingNotices) + this checking process itself (currentProcess).
+        assertThat(countWhileWaiting).isEqualTo(2)
+    }
+
+    /**
+     * If a Continuous.derivatives() override reactivates another process with its own pending
+     * crossing notice, context.crossingNotices shrinks mid-step. Guard "before" values must
+     * stay attached to their owning notice (not a list position) so an unrelated notice's
+     * crossing is still located correctly and at the right time.
+     */
+    @Test
+    fun midStepMutationOfCrossingNoticesDoesNotCorruptOtherNotice() = runTest {
+        val x = Variable(0.0)
+        var derivCalls = 0
+        lateinit var a: Process
+        lateinit var b: Process
+        var bResumedTime = Double.NaN
+
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 1.0
+                derivCalls++
+                // Mid-step: reactivate `a`, removing its crossing notice from the registry
+                // while `b`'s notice is still pending in the same step.
+                if (derivCalls == 2) {
+                    Process.reactivate(a)
+                }
+            }
+        }
+
+        runSimulation(endTime = 20.0) {
+            dtMax = 1.0
+            a = object : Process() {
+                override suspend fun actions() {
+                    waitCrossing { 1000.0 - x.state }  // never crosses; reactivated instead
+                }
+            }
+            b = object : Process() {
+                override suspend fun actions() {
+                    waitCrossing { 5.0 - x.state }
+                    bResumedTime = time()
+                }
+            }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    Process.activate(a)
+                    Process.activate(b)
+                    hold(20.0)
+                }
+            })
+        }
+
+        assertThat(abs(bResumedTime - 5.0)).isLessThan(1e-4)
+    }
 }
