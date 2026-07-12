@@ -245,6 +245,7 @@ class Simulation internal constructor() {
     /** Number of processes that are running, scheduled, or pending activation. Passivated processes are not counted. */
     fun activeProcessCount(): Int {
         return context.pendingActivations.size + context.eventQueue.size() +
+                context.crossingNotices.size +
                 (if (context.currentProcess != null) 1 else 0)
     }
 

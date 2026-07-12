@@ -137,6 +137,61 @@ abstract class Process : Link() {
     suspend fun waitUntil(condition: () -> Boolean) = waitUntil(Condition(condition))
 
     /**
+     * Suspends this process until the continuous guard function [guard] (`g(state, t)`)
+     * changes sign — a *state event* (zero-crossing).
+     *
+     * Unlike [waitUntil], which only re-checks a boolean condition after each accepted
+     * integration step (resolving a crossing to within one whole step), this locates the
+     * crossing time *within* the step by root-finding (bisection). The process is resumed
+     * exactly at the located crossing time, with all active [Variable]s rolled back to their
+     * values at that instant.
+     *
+     * This lets hybrid discrete/continuous models leave [Simulation.dtMax] at its natural
+     * value and rely on the adaptive error controller for step size, instead of forcing a
+     * tiny `dtMax` so that the overshoot past a boundary is negligible.
+     *
+     * The guard's sign is sampled when [waitCrossing] is called; the process then waits for
+     * the *next* change of that sign. A guard that is already zero (or the wrong sign) at
+     * registration is not treated as an immediate crossing — the process waits for a genuine
+     * sign change during subsequent integration.
+     *
+     * Crossing detection requires at least one active [Continuous] process driving integration.
+     *
+     * **Known limitation**: crossings are detected by comparing the guard's sign at the start
+     * and end of each accepted integration step. A guard that departs from and returns to zero
+     * *entirely within a single step* (e.g. an instantaneous reversal exactly at a boundary) is
+     * not detected, because both endpoints can show the same sign (or a start value of exactly
+     * zero, which this API deliberately excludes from the crossing test). This mirrors a known
+     * limitation of endpoint-based state-event location in ODE solvers generally; a model
+     * relying on detecting such same-step reversals needs a smaller `dtMax` around that
+     * boundary, same as the tiny-`dtMax` workaround this API otherwise replaces.
+     *
+     * ```kotlin
+     * // Resume exactly when the train front reaches the block boundary.
+     * waitCrossing { boundary - position.state }
+     * ```
+     *
+     * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
+     *   0.0 disables the early-out and relies on the bisection bracket collapsing to
+     *   floating-point resolution (still bounded). Defaults to 1e-9.
+     * @param guard the event function `g(state, t)`; a sign change locates the event.
+     *
+     * Must only be called from within [actions] (i.e., from a running process).
+     */
+    suspend fun waitCrossing(tolerance: Double = 1e-9, guard: () -> Double) {
+        require(tolerance >= 0.0) { "tolerance must be non-negative, got $tolerance" }
+        suspendCancellableCoroutine<Unit> { cont ->
+            _state = ProcessState.SCHEDULED
+            continuation = cont
+            context.crossingNotices.add(CrossingNotice(this, guard, tolerance))
+            cont.invokeOnCancellation {
+                continuation = null
+                context.crossingNotices.removeAll { it.process === this@Process }
+            }
+        }
+    }
+
+    /**
      * Terminates this process immediately.
      * Throws [ProcessTerminatedException] to unwind the coroutine call stack.
      *
@@ -151,6 +206,8 @@ abstract class Process : Link() {
             context.eventListeners.forEach { it(event) }
         }
         context.eventQueue.remove(this)
+        continuation = null
+        context.crossingNotices.removeAll { it.process === this@Process }
         throw ProcessTerminatedException()
     }
 
@@ -238,6 +295,7 @@ abstract class Process : Link() {
                 ctx.eventListeners.forEach { it(event) }
             }
             ctx.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
+            ctx.crossingNotices.removeAll { it.process === process }  // clear stale crossing notices
             ctx.eventQueue.remove(process)   // prevent duplicate if already scheduled
             ctx.eventQueue.schedule(process, ctx.currentTime)
         }

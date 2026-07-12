@@ -97,6 +97,35 @@ fun main() {
 }
 ```
 
+### 4. State events (zero-crossing detection)
+
+For hybrid models that must react at the *exact* instant a continuous variable crosses a
+boundary, use `waitCrossing { g(state, t) }`. The engine locates the sign change of the guard
+*within* an integration step by root-finding and resumes the process precisely at the crossing
+time — so you can leave `dtMax` at its natural value instead of forcing a tiny step to keep the
+overshoot negligible.
+
+```kotlin
+class Train(private val speed: Double, private val boundary: Double) : Continuous() {
+    val position = Variable(0.0)
+
+    override fun derivatives() { position.rate = speed }
+
+    override suspend fun actions() {
+        position.start(); this.start()
+        // Resumes exactly when position reaches the block boundary.
+        waitCrossing { boundary - position.state }
+        println("Reached boundary at t=${time()}, x=${position.state}")
+        this.stop(); position.stop()
+    }
+}
+```
+
+Unlike `waitUntil { position.state >= boundary }`, which only re-checks the condition after each
+accepted step (resolving the crossing to within one whole step), `waitCrossing` pinpoints the
+crossing time. This lets the adaptive error controller choose large steps, cutting derivative
+evaluations by orders of magnitude for models that were previously pinned to a tiny `dtMax`.
+
 ## Kotlin DSL Extensions
 
 kDisco adds idiomatic Kotlin helpers on top of the jDisco-parallel API:
