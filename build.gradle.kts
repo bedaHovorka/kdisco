@@ -29,7 +29,7 @@ subprojects {
     // to timing variance in CI. Exclude it from default test runs on every target;
     // opt in with -PrunBenchmarks=true.
     tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask> {
-        if (!project.hasProperty("runBenchmarks")) {
+        if (project.findProperty("runBenchmarks")?.toString()?.toBoolean() != true) {
             filter.excludeTestsMatching("cz.ksimulantenbande.kdisco.TickSchedulingBenchmark")
         } else {
             // Opt-in benchmark run: surface the benchmark's per-pattern ns/tick println

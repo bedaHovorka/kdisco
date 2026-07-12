@@ -23,17 +23,17 @@ import kotlin.time.measureTime
  */
 class TickSchedulingBenchmark {
 
-    data class Result(val label: String, val ticks: Int, val wallMs: Long) {
-        val nsPerTick: Double = wallMs * 1_000_000.0 / ticks
-        val ticksPerSecond: Double = ticks / (wallMs / 1000.0)
+    data class Result(val label: String, val ticks: Int, val wallNs: Long) {
+        val nsPerTick: Double = wallNs.toDouble() / ticks
+        val ticksPerSecond: Double = ticks / (wallNs / 1_000_000_000.0)
         override fun toString(): String =
-            "$label: ticks=$ticks wall=${wallMs}ms ns/tick=${nsPerTick.fmt()} ticks/s=${ticksPerSecond.fmt()}"
+            "$label: ticks=$ticks wall=${(wallNs / 1_000_000.0).fmt()}ms ns/tick=${nsPerTick.fmt()} ticks/s=${ticksPerSecond.fmt()}"
     }
 
     /** Pattern 1: single ticker doing hold(1.0) per tick — the fast-sim main loop shape. */
     private suspend fun runSingleTicker(ticks: Int): Result {
         var executed = 0
-        val wallMs = measureTime {
+        val wallNs = measureTime {
             runSimulation(endTime = ticks + 1.0) {
                 Process.activate(object : Process() {
                     override suspend fun actions() {
@@ -44,15 +44,15 @@ class TickSchedulingBenchmark {
                     }
                 })
             }
-        }.inWholeMilliseconds
+        }.inWholeNanoseconds
         assertThat(executed).isEqualTo(ticks)
-        return Result("single-ticker hold(1.0)", ticks, wallMs)
+        return Result("single-ticker hold(1.0)", ticks, wallNs)
     }
 
     /** Pattern 2: N concurrent processes each holding 1.0 per tick (co-scheduled entities). */
     private suspend fun runMultiTicker(processes: Int, ticksEach: Int): Result {
         var executed = 0
-        val wallMs = measureTime {
+        val wallNs = measureTime {
             runSimulation(endTime = ticksEach + 1.0) {
                 repeat(processes) {
                     Process.activate(object : Process() {
@@ -65,16 +65,16 @@ class TickSchedulingBenchmark {
                     })
                 }
             }
-        }.inWholeMilliseconds
+        }.inWholeNanoseconds
         val total = processes * ticksEach
         assertThat(executed).isEqualTo(total)
-        return Result("multi-ticker x$processes hold(1.0)", total, wallMs)
+        return Result("multi-ticker x$processes hold(1.0)", total, wallNs)
     }
 
     /** Pattern 3: ticker spawning one short-lived process per tick (activate churn). */
     private suspend fun runActivateChurn(ticks: Int): Result {
         var spawnedRuns = 0
-        val wallMs = measureTime {
+        val wallNs = measureTime {
             runSimulation(endTime = ticks + 1.0) {
                 Process.activate(object : Process() {
                     override suspend fun actions() {
@@ -89,15 +89,15 @@ class TickSchedulingBenchmark {
                     }
                 })
             }
-        }.inWholeMilliseconds
+        }.inWholeNanoseconds
         assertThat(spawnedRuns).isEqualTo(ticks)
-        return Result("activate-churn (spawn per tick)", ticks, wallMs)
+        return Result("activate-churn (spawn per tick)", ticks, wallNs)
     }
 
     /** Pattern 4: ticker reactivating a passivated worker every tick (reactivate churn). */
     private suspend fun runReactivateChurn(ticks: Int): Result {
         var wakes = 0
-        val wallMs = measureTime {
+        val wallNs = measureTime {
             runSimulation(endTime = ticks + 1.0) {
                 val worker = object : Process() {
                     override suspend fun actions() {
@@ -117,15 +117,15 @@ class TickSchedulingBenchmark {
                     }
                 })
             }
-        }.inWholeMilliseconds
-        assertThat(wakes).isGreaterThanOrEqualTo(ticks - 1)
-        return Result("reactivate-churn (wake per tick)", ticks, wallMs)
+        }.inWholeNanoseconds
+        assertThat(wakes).isEqualTo(ticks)
+        return Result("reactivate-churn (wake per tick)", ticks, wallNs)
     }
 
     /** Pattern 5: ticker with one active Continuous + Variable (RKF45 bookkeeping per tick). */
     private suspend fun runContinuousTicker(ticks: Int): Result {
         var executed = 0
-        val wallMs = measureTime {
+        val wallNs = measureTime {
             runSimulation(endTime = ticks + 1.0) {
                 Process.activate(object : Process() {
                     val x = Variable(1.0)
@@ -147,9 +147,9 @@ class TickSchedulingBenchmark {
                     }
                 })
             }
-        }.inWholeMilliseconds
+        }.inWholeNanoseconds
         assertThat(executed).isEqualTo(ticks)
-        return Result("continuous-ticker (1 Continuous, 1 Variable)", ticks, wallMs)
+        return Result("continuous-ticker (1 Continuous, 1 Variable)", ticks, wallNs)
     }
 
     /**
@@ -167,7 +167,7 @@ class TickSchedulingBenchmark {
      */
     private suspend fun runDeepQueue(n: Int, ticksPerProcess: Int): Result {
         var executed = 0
-        val wallMs = measureTime {
+        val wallNs = measureTime {
             runSimulation(endTime = n * ticksPerProcess + 1.0) {
                 repeat(n) {
                     Process.activate(object : Process() {
@@ -180,10 +180,10 @@ class TickSchedulingBenchmark {
                     })
                 }
             }
-        }.inWholeMilliseconds
+        }.inWholeNanoseconds
         val totalTicks = n * ticksPerProcess
         assertThat(executed).isEqualTo(totalTicks)
-        return Result("deep-queue (N=$n, resident)", totalTicks, wallMs)
+        return Result("deep-queue (N=$n, resident)", totalTicks, wallNs)
     }
 
     @Test
