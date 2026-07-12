@@ -145,6 +145,27 @@ queue.asSequence().forEach { link -> /* ... */ }
 queue.asSequenceOf<Customer>().filter { it.priority > 3 }
 ```
 
+## Benchmarks
+
+`kdisco-core/src/commonTest/kotlin/cz/ksimulantenbande/kdisco/TickSchedulingBenchmark.kt`
+measures per-tick scheduling overhead for fast-sim-shaped workloads (six patterns:
+single driver tick loop, co-scheduled entities, per-tick spawn, per-tick wake of a
+passivated worker, a tick loop with continuous integration active, and a deep-queue
+sweep isolating `removeFirst()` depth-scaling). It's excluded from default
+`build`/`test`/`allTests` runs (including CI) on every target because its iteration
+counts (up to 1M ticks) are too slow/flaky under Kotlin/JS and prone to CI timing
+variance. The primary target is `linuxX64Test` (native, the fast-sim CLI's runtime —
+no JIT; this pulls in the extra `linkDebugTestLinuxX64` compile/link task automatically
+before the test binary runs). The `runBenchmarks`-gated `testLogging.showStandardStreams`
+in `build.gradle.kts` already prints the per-pattern `ns/tick` lines when
+`-PrunBenchmarks=true` is set; add `--info` if you also want Gradle's link progress:
+
+```bash
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info
+# jvmTest comparison point (JIT-warmed):
+./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info
+```
+
 ## Koin Integration (`kdisco-koin`)
 
 The `kdisco-koin` module provides first-class [Koin](https://insert-koin.io/) dependency injection for simulations.
