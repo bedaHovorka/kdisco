@@ -107,8 +107,8 @@ is a single null check per tick — zero share.
 
 ## 4. Measured numbers
 
-Micro-benchmark: `kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
-(run with `./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info`;
+Micro-benchmark: `kdisco-core/src/commonTest/kotlin/cz/ksimulantenbande/kdisco/TickSchedulingBenchmark.kt`
+(run with `./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info`;
 `--info` / the `runBenchmarks`-gated `testLogging.showStandardStreams` surfaces the per-pattern
 `ns/tick` lines to the console).
 
@@ -239,9 +239,9 @@ The primary target is `linuxX64Test` (native, the fast-sim CLI's runtime — no 
 lines to the console:
 
 ```bash
-./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info
 # jvmTest comparison point (same command, swap the task):
-./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
+./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info
 ```
 
 The six benchmark patterns intentionally mirror the interlockSim fast-sim shapes: single
@@ -265,8 +265,34 @@ CI) on every target and opt-in via `-PrunBenchmarks=true` because its iteration 
 - [x] Instrumentation proposal to obtain the real `shuntingLoop 300` event count —
   posted on [interlockSim#738](https://github.com/bedaHovorka/interlockSim/issues/738#issuecomment-4931473954).
 - [x] Specific, prioritized kDisco changes on file *if* a material share is shown — §6.
-- [ ] Final disposition (optimize vs. close as not-applicable) — **blocked on SP0.13
-  Phase-1 numbers** (the #738-measured real 300-run event count), per the issue's "do
-  not start until" clause. The native projection here (~94–275 ms at a projected ~50 000
-  events) is the preparation so that disposition is a table lookup once that real count
-  lands.
+- [x] Final disposition — **resolved 2026-07-11**, see §9. SP0.13 Phase-1 landed a real
+  `shuntingLoop 300` event count of 739 (peak queue depth 7), two orders of magnitude below
+  this doc's ~50 000-event projection. Measured kDisco-scheduling share: **~0.4%** of wall
+  time — exonerated, not the "~94–275 ms, sub-regression but not negligible" this doc
+  projected. Closed as not-applicable to scheduling; the actual dominant kDisco-side cost
+  turned out to be continuous integration, tracked separately.
+
+## 9. Resolution (2026-07-11)
+
+The SP0.13 Phase-1 instrumentation this doc was blocked on has landed
+([issue #55 comment](https://github.com/bedaHovorka/kdisco/issues/55#issuecomment-4948269481)):
+
+- Real `shuntingLoop 300` engine-event count: **739** iterations, peak queue depth **7** (vs.
+  this doc's projected ~18 000–50 000-event bound in §4/§5).
+- Real kDisco-scheduling share of wall time: **~0.4%** (739 events × ~1.9–2.2 µs/event ≈
+  1.4–1.6 ms out of ~342 ms total) — the scheduler is exonerated.
+- The interlockSim regression that motivated issue #55 **did not reproduce at all** on a
+  same-workload rerun (SP0.4 baseline 307–329 ms vs. tip 341 ms) and was closed
+  not-reproducible upstream.
+- Profiling did find kDisco *is* the dominant engine-side cost in this workload — just not
+  in scheduling. `Continuous.derivatives()` is called **~3.5 million** times per
+  `shuntingLoop 300` run (vs. 739 discrete events), because kDisco has no state-event /
+  zero-crossing root-finding and interlockSim is forced to pin `dtMax = 1e-3` to keep
+  block-boundary overshoot small. That is the real ~60–70% of wall time.
+- Filed as **[issue #67](https://github.com/bedaHovorka/kdisco/issues/67)** and resolved by
+  **PR #68**, which adds `Process.waitCrossing` state-event detection with bisection
+  root-finding so models can leave `dtMax` at its natural value.
+
+This benchmark and the static per-tick breakdown in §3–§6 remain valid and useful as the
+kDisco scheduling baseline — they are simply no longer the bottleneck in this particular
+workload.

@@ -147,7 +147,7 @@ queue.asSequenceOf<Customer>().filter { it.priority > 3 }
 
 ## Benchmarks
 
-`kdisco-core/src/commonTest/kotlin/cz/hovorka/kdisco/TickSchedulingBenchmark.kt`
+`kdisco-core/src/commonTest/kotlin/cz/ksimulantenbande/kdisco/TickSchedulingBenchmark.kt`
 measures per-tick scheduling overhead for fast-sim-shaped workloads (six patterns:
 single driver tick loop, co-scheduled entities, per-tick spawn, per-tick wake of a
 passivated worker, a tick loop with continuous integration active, and a deep-queue
@@ -161,9 +161,9 @@ in `build.gradle.kts` already prints the per-pattern `ns/tick` lines when
 `-PrunBenchmarks=true` is set; add `--info` if you also want Gradle's link progress:
 
 ```bash
-./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
+./gradlew :kdisco-core:linuxX64Test -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info
 # jvmTest comparison point (JIT-warmed):
-./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.hovorka.kdisco.TickSchedulingBenchmark" --info
+./gradlew :kdisco-core:jvmTest      -PrunBenchmarks=true --tests "cz.ksimulantenbande.kdisco.TickSchedulingBenchmark" --info
 ```
 
 ## Koin Integration (`kdisco-koin`)

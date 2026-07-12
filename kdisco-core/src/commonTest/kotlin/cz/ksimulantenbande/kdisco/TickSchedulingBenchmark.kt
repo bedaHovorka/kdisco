@@ -1,4 +1,4 @@
-package cz.hovorka.kdisco
+package cz.ksimulantenbande.kdisco
 
 import assertk.assertThat
 import assertk.assertions.*

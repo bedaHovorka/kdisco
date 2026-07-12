@@ -30,7 +30,7 @@ subprojects {
     // opt in with -PrunBenchmarks=true.
     tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask> {
         if (!project.hasProperty("runBenchmarks")) {
-            filter.excludeTestsMatching("cz.hovorka.kdisco.TickSchedulingBenchmark")
+            filter.excludeTestsMatching("cz.ksimulantenbande.kdisco.TickSchedulingBenchmark")
         } else {
             // Opt-in benchmark run: surface the benchmark's per-pattern ns/tick println
             // output to the console (otherwise Gradle buries test stdout in the JUnit
