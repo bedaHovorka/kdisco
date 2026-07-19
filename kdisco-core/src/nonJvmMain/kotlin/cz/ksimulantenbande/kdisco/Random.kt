@@ -3,7 +3,6 @@
 // Author of jDisco: Keld Helsgaun, Roskilde University, Denmark. Email: keld@ruc.dk
 package cz.ksimulantenbande.kdisco
 
-import kotlin.math.ln
 import kotlin.math.sqrt
 import kotlin.random.Random as KRandom
 
@@ -12,6 +11,11 @@ import kotlin.random.Random as KRandom
  * so that seeded sequences are deterministic and **match JVM output** across platforms.
  * Uses the Marsaglia polar method with caching for [normal], mirroring
  * `java.util.Random.nextGaussian()`.
+ *
+ * Transcendental functions (`ln`, `exp`) go through [PortableMath] instead of
+ * `kotlin.math` so that [exp], [negexp], [normal] and [poisson] draws are
+ * bit-identical across JVM, JS and Native (see issue #69). `sqrt` is correctly
+ * rounded per IEEE-754 on all platforms and needs no replacement.
  */
 actual class Random {
 	private var seed: Long
@@ -44,7 +48,7 @@ actual class Random {
 			v2 = 2.0 * nextDouble() - 1.0
 			s = v1 * v1 + v2 * v2
 		} while (s >= 1.0 || s == 0.0)
-		val multiplier = sqrt(-2.0 * ln(s) / s)
+		val multiplier = sqrt(-2.0 * PortableMath.ln(s) / s)
 		nextNextGaussian = v2 * multiplier
 		haveNextNextGaussian = true
 		return v1 * multiplier
@@ -83,11 +87,11 @@ actual class Random {
 
 	actual fun negexp(a: Double): Double {
 		require(a > 0.0) { "negexp: parameter must be positive, got $a" }
-		return -ln(nextDoubleNonZero()) / a
+		return -PortableMath.ln(nextDoubleNonZero()) / a
 	}
 
 	actual fun exp(a: Double): Double {
-		return -a * ln(nextDoubleNonZero())
+		return -a * PortableMath.ln(nextDoubleNonZero())
 	}
 
 	actual fun uniform(a: Double, b: Double): Double {
@@ -106,7 +110,7 @@ actual class Random {
 	}
 
 	actual fun poisson(a: Double): Int {
-		val limit = kotlin.math.exp(-a)
+		val limit = PortableMath.exp(-a)
 		var k = 0
 		var p = 1.0
 		do {
