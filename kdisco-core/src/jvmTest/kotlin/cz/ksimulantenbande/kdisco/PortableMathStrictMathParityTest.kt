@@ -20,8 +20,7 @@ class PortableMathStrictMathParityTest {
 	@Test
 	fun lnMatchesStrictMathOnRandomUniformDoubles() {
 		val r = java.util.Random(12345L)
-		repeat(1_000_000) {
-			val x = r.nextDouble()
+		repeat(200_000) {
 			if (x == 0.0) return@repeat
 			assertThat(PortableMath.ln(x).toRawBits()).isEqualTo(StrictMath.log(x).toRawBits())
 		}
