@@ -3,6 +3,7 @@
 // Author of jDisco: Keld Helsgaun, Roskilde University, Denmark. Email: keld@ruc.dk
 package cz.ksimulantenbande.kdisco
 
+import kotlin.math.sqrt
 import kotlin.random.Random as KRandom
 import kotlin.random.asKotlinRandom
 
@@ -11,12 +12,21 @@ import kotlin.random.asKotlinRandom
  *
  * This ensures identical random sequences as jDisco's `Random` class
  * (which extends `java.util.Random`), including:
- * - `normal()` → delegates to `nextGaussian()` (Marsaglia polar method with caching)
- * - `exp()` → `-a * Math.log(nextDouble())` (matching jDisco exactly)
- * - `negexp()` → `-Math.log(nextDouble()) / a` (matching jDisco exactly)
+ * - `normal()` → Marsaglia polar method with caching (mirroring `nextGaussian()`)
+ * - `exp()` → `-a * ln(nextDouble())` (matching jDisco exactly)
+ * - `negexp()` → `-ln(nextDouble()) / a` (matching jDisco exactly)
+ *
+ * Transcendental functions (`ln`, `exp`) go through [PortableMath] instead of
+ * `java.lang.Math` so that [exp], [negexp], [normal] and [poisson] draws are
+ * bit-identical across JVM, JS and Native (see issue #69). [PortableMath] is a
+ * faithful fdlibm port, so on the JVM it matches `StrictMath.log`/`StrictMath.exp`
+ * (which `java.util.Random.nextGaussian()` itself uses). `sqrt` is correctly
+ * rounded per IEEE-754 on all platforms and needs no replacement.
  */
 actual class Random {
 	private val jRandom: java.util.Random
+	private var nextNextGaussian: Double = 0.0
+	private var haveNextNextGaussian: Boolean = false
 
 	actual constructor() {
 		jRandom = java.util.Random()
@@ -30,7 +40,32 @@ actual class Random {
 
 	actual fun normal(mean: Double, stdDev: Double): Double {
 		require(stdDev >= 0.0) { "stdDev must be non-negative, got $stdDev" }
-		return mean + stdDev * jRandom.nextGaussian()
+		return mean + stdDev * nextGaussian()
+	}
+
+	/**
+	 * Marsaglia polar method with caching, mirroring `java.util.Random.nextGaussian()`
+	 * but using [PortableMath.ln] for cross-platform bit-identical results.
+	 * (`java.util.Random.nextGaussian()` uses `StrictMath.log`, which [PortableMath.ln]
+	 * matches exactly, so JVM sequences are unchanged.)
+	 */
+	private fun nextGaussian(): Double {
+		if (haveNextNextGaussian) {
+			haveNextNextGaussian = false
+			return nextNextGaussian
+		}
+		var v1: Double
+		var v2: Double
+		var s: Double
+		do {
+			v1 = 2.0 * jRandom.nextDouble() - 1.0
+			v2 = 2.0 * jRandom.nextDouble() - 1.0
+			s = v1 * v1 + v2 * v2
+		} while (s >= 1.0 || s == 0.0)
+		val multiplier = sqrt(-2.0 * PortableMath.ln(s) / s)
+		nextNextGaussian = v2 * multiplier
+		haveNextNextGaussian = true
+		return v1 * multiplier
 	}
 
 	/** Returns nextDouble(), re-sampling if exactly 0.0 to avoid log(0) = -Infinity. */
@@ -42,11 +77,11 @@ actual class Random {
 
 	actual fun negexp(a: Double): Double {
 		require(a > 0.0) { "negexp: parameter must be positive, got $a" }
-		return -Math.log(nextDoubleNonZero()) / a
+		return -PortableMath.ln(nextDoubleNonZero()) / a
 	}
 
 	actual fun exp(a: Double): Double {
-		return -a * Math.log(nextDoubleNonZero())
+		return -a * PortableMath.ln(nextDoubleNonZero())
 	}
 
 	actual fun uniform(a: Double, b: Double): Double {
@@ -65,7 +100,7 @@ actual class Random {
 	}
 
 	actual fun poisson(a: Double): Int {
-		val limit = kotlin.math.exp(-a)
+		val limit = PortableMath.exp(-a)
 		var k = 0
 		var p = 1.0
 		do {
