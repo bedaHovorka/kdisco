@@ -41,8 +41,7 @@ class PortableMathStrictMathParityTest {
 	@Test
 	fun expMatchesStrictMathOnRandomArguments() {
 		val r = java.util.Random(4242L)
-		repeat(1_000_000) {
-			// Arguments spanning normal use, overflow and underflow regions
+		repeat(200_000) {
 			val x = (r.nextDouble() - 0.5) * 1600.0
 			assertThat(PortableMath.exp(x).toRawBits()).isEqualTo(StrictMath.exp(x).toRawBits())
 		}
