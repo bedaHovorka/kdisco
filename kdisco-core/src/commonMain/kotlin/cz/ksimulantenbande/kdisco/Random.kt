@@ -22,6 +22,15 @@ import kotlin.random.Random as KRandom
  * through [PortableMath] (a pure-Kotlin fdlibm port) instead of `kotlin.math`,
  * whose implementations differ per platform at the last bit (see issue #69).
  *
+ * **Thread safety**: not thread-safe. A [Random] instance is confined to its
+ * [Simulation]'s single-threaded dispatcher — [Simulation] runs on
+ * `Dispatchers.Unconfined` with a thread-local-confined `SimulationContext` and
+ * owns exactly one [Random]. Do not share a single instance across threads or
+ * coroutines; if you must use a multi-threaded dispatcher, give each thread its
+ * own [Random]. (This mirrors the pre-PR JVM behavior: `java.util.Random`'s
+ * per-call synchronization never protected the multi-call `normal`/`poisson`/
+ * `erlang` sequences anyway.)
+ *
  * Use [Random(seed)] for reproducible simulations. Use [Random()] for
  * non-deterministic runs.
  */

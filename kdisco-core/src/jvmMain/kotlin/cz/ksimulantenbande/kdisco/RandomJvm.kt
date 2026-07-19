@@ -10,11 +10,11 @@ import kotlin.random.asKotlinRandom
 /**
  * JVM implementation of [Random] backed by [java.util.Random].
  *
- * This ensures identical random sequences as jDisco's `Random` class
+ * This preserves the random sequences of jDisco's `Random` class
  * (which extends `java.util.Random`), including:
  * - `normal()` → Marsaglia polar method with caching (mirroring `nextGaussian()`)
- * - `exp()` → `-a * ln(nextDouble())` (matching jDisco exactly)
- * - `negexp()` → `-ln(nextDouble()) / a` (matching jDisco exactly)
+ * - `exp()` → `-a * ln(nextDouble())`
+ * - `negexp()` → `-ln(nextDouble()) / a`
  *
  * Transcendental functions (`ln`, `exp`) go through [PortableMath] instead of
  * `java.lang.Math` so that [exp], [negexp], [normal] and [poisson] draws are
@@ -22,6 +22,14 @@ import kotlin.random.asKotlinRandom
  * faithful fdlibm port, so on the JVM it matches `StrictMath.log`/`StrictMath.exp`
  * (which `java.util.Random.nextGaussian()` itself uses). `sqrt` is correctly
  * rounded per IEEE-754 on all platforms and needs no replacement.
+ *
+ * **Backward compatibility vs jDisco / pre-PR kDisco**: `normal()` and `poisson()`
+ * are bit-unchanged (`nextGaussian()` uses `StrictMath.log`; `Math.exp` matches
+ * `StrictMath.exp` for the `poisson` acceptance limit). `exp()`/`negexp()` switched
+ * from `java.lang.Math.log` (a HotSpot intrinsic, JLS-guaranteed only to <= 1 ulp)
+ * to fdlibm, so on a JVM whose `Math.log` differs from `StrictMath.log` the
+ * `exp()`/`negexp()` draw shifts by <= 1 ulp — the intended trade-off for
+ * byte-identical cross-platform streams (pinned by `PortableMathStrictMathParityTest`).
  */
 actual class Random {
 	private val jRandom: java.util.Random

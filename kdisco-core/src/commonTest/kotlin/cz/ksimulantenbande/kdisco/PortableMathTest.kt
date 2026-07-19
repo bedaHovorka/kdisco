@@ -6,8 +6,10 @@ package cz.ksimulantenbande.kdisco
 import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isLessThan
+import assertk.assertions.isLessThanOrEqualTo
 import assertk.assertions.isTrue
 import kotlin.math.abs
+import kotlin.math.ulp
 import kotlin.test.Test
 
 /**
@@ -99,26 +101,30 @@ class PortableMathTest {
 	@Test
 	fun lnAgreesWithPlatformMathWithinOneUlp() {
 		// The port must still be an accurate natural log (≤ 1 ulp of the platform
-		// implementation, which is itself ≤ 1 ulp of the exact value).
+		// implementation, which is itself ≤ 1 ulp of the exact value). Compared as a
+		// value-based |actual - expected| <= expected.ulp check rather than a raw-bits
+		// diff, so the metric stays valid across sign changes and the subnormal/
+		// normal boundary. Inputs stay finite and normal-magnitude (ln of
+		// [1.0e-300, 1.0e300] -> [-690, 690]), so expected.ulp is well defined.
 		val r = Random(2024L)
 		repeat(10_000) {
 			val x = r.uniform(1.0e-300, 1.0) * r.uniform(1.0, 1.0e300)
 			val expected = kotlin.math.ln(x)
 			val actual = PortableMath.ln(x)
-			val ulpDiff = abs(actual.toRawBits() - expected.toRawBits())
-			assertThat(ulpDiff).isLessThan(2L)
+			assertThat(abs(actual - expected)).isLessThanOrEqualTo(expected.ulp)
 		}
 	}
 
 	@Test
 	fun expAgreesWithPlatformMathWithinOneUlp() {
+		// Same value-based ≤ 1-ulp check as the ln test above. exp([-700, 700])
+		// yields finite, normal-magnitude results, so expected.ulp is well defined.
 		val r = Random(2025L)
 		repeat(10_000) {
 			val x = r.uniform(-700.0, 700.0)
 			val expected = kotlin.math.exp(x)
 			val actual = PortableMath.exp(x)
-			val ulpDiff = abs(actual.toRawBits() - expected.toRawBits())
-			assertThat(ulpDiff).isLessThan(2L)
+			assertThat(abs(actual - expected)).isLessThanOrEqualTo(expected.ulp)
 		}
 	}
 
