@@ -126,6 +126,20 @@ accepted step (resolving the crossing to within one whole step), `waitCrossing` 
 crossing time. This lets the adaptive error controller choose large steps, cutting derivative
 evaluations by orders of magnitude for models that were previously pinned to a tiny `dtMax`.
 
+`waitCrossing` is *edge-triggered*: it fires only on a strict sign change of the guard observed
+at accepted step endpoints. For threshold-reach conditions on variables that may come to rest
+(e.g. a braking train asymptoting to a stop at the boundary), use the *level-triggered*
+`waitUntilCrossing { g(state, t) }` instead. It resumes as soon as `guard() <= 0` holds —
+returning immediately if already satisfied, re-tested after every discrete event and every
+accepted step like a `waitUntil` condition — while still root-finding a within-step transition
+with `waitCrossing`'s precision:
+
+```kotlin
+// Safe threshold wait: precise when the crossing occurs inside a step, and still released
+// if the position is already past (or stalls just past) the boundary.
+waitUntilCrossing { boundary - position.state }
+```
+
 ## Kotlin DSL Extensions
 
 kDisco adds idiomatic Kotlin helpers on top of the jDisco-parallel API:

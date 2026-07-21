@@ -98,11 +98,13 @@ internal class ContinuousMonitor(
                 // process is scheduled there, so we stop this integration pass immediately.
                 if (guardsBefore != null && locateCrossings(stepStart, guardsBefore)) break
 
-                // Stop integration early if a wait-notice was satisfied so that the scheduler
-                // can process the newly-scheduled event with variable states that match currentTime.
+                // Stop integration early if a wait-notice or a level-triggered crossing notice
+                // was satisfied so that the scheduler can process the newly-scheduled event
+                // with variable states that match currentTime.
                 val noticesBefore = context.waitNotices.size
                 context.checkWaitNotices()
-                if (context.waitNotices.size < noticesBefore) break
+                val levelFired = context.checkLevelCrossings()
+                if (levelFired || context.waitNotices.size < noticesBefore) break
             }
             dtNext = dtNextLocal
         } finally {
@@ -145,10 +147,20 @@ internal class ContinuousMonitor(
         for ((notice, g0) in guardsBefore) {
             if (!context.crossingNotices.contains(notice)) continue
             val g1 = notice.guard()
-            // A crossing requires a strict sign change from a non-zero start (reaching the
-            // boundary exactly, g1 == 0.0, counts). A guard that is already zero at the step
-            // start is not treated as a crossing — it must first depart from the boundary.
-            if ((g0 > 0.0 && g1 <= 0.0) || (g0 < 0.0 && g1 >= 0.0)) {
+            // Edge-triggered ([Process.waitCrossing]): a crossing requires a strict sign change
+            // from a non-zero start (reaching the boundary exactly, g1 == 0.0, counts). A guard
+            // that is already zero at the step start is not treated as a crossing — it must
+            // first depart from the boundary.
+            // Level-triggered ([Process.waitUntilCrossing]): only the downward transition
+            // (guard becomes satisfied, g1 <= 0) is a crossing; an upward transition would mean
+            // the guard was already satisfied at the step start, which is handled by
+            // [SimulationContext.checkLevelCrossings] instead.
+            val fires = if (notice.levelTriggered) {
+                g0 > 0.0 && g1 <= 0.0
+            } else {
+                (g0 > 0.0 && g1 <= 0.0) || (g0 < 0.0 && g1 >= 0.0)
+            }
+            if (fires) {
                 crossed.add(notice to g0)
                 anyCrossed = true
             }

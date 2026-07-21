@@ -179,6 +179,7 @@ class Simulation internal constructor() {
                     // returns here for the next event.
                 }
                 context.checkWaitNotices()
+                context.checkLevelCrossings()
             }
         } finally {
             context.isRunning = false
