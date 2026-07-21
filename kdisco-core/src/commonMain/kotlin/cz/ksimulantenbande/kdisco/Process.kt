@@ -239,6 +239,18 @@ abstract class Process : Link() {
      * early at `|guard()| <= tolerance` — the located crossing point can then sit up to
      * [tolerance] on the positive side of the boundary.
      *
+     * **Cancellation by [reactivate]/[terminate].** If [Process.reactivate] is called on a process
+     * parked in `waitUntilCrossing`, its level notice is dropped and the process resumes at the
+     * current time (the wait is not re-registered) — the same cleanup [waitCrossing] performs.
+     * [Process.terminate] removes the notice without resuming. Either way the wait is not
+     * silently re-armed, so there is no second permanent-park route via these calls.
+     *
+     * **Known limitation**: as with [waitCrossing], the guard is compared at the start and end of
+     * each accepted integration step (plus the post-step/post-event level re-test). A guard that
+     * departs from and returns to the satisfied region *entirely within a single accepted step*
+     * is not detected, because both endpoints can show the guard positive. A model relying on
+     * detecting such same-step dips needs a smaller `dtMax` around that region.
+     *
      * ```kotlin
      * // Resume as soon as the train front has reached the block boundary — precisely when
      * // the crossing occurs inside a step, and immediately if the position is already past

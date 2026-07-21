@@ -254,9 +254,51 @@ class WaitUntilCrossingTest {
         }
 
         // The gate must open (no permanent park), with the position at/past the threshold
-        // within tolerance.
+        // within tolerance (the root-finder guarantees |guard| <= 1e-9 on resume).
         assertThat(gateTime.isNaN()).isFalse()
-        assertThat(gatePosition).isGreaterThan(boundary - 1e-4)
+        assertThat(gatePosition).isGreaterThanOrEqualTo(boundary - 1e-5 - 1e-9)
+    }
+
+    /**
+     * Situation 2 (A/B counterpart to [brakingTrainAsymptotingToBoundaryReleasesGateThreshold]):
+     * the same braking law, but with the gate threshold placed BEYOND the asymptote. The train
+     * stops short of it and no discrete event ever lowers the threshold, so the wait must NOT
+     * resume — a genuine "train stops short", not a missed event. The safety argument between
+     * cases 1 and 2 lives entirely in the slack term.
+     */
+    @Test
+    fun brakingTrainStallingShortOfThresholdMustNotResume() = runTest {
+        val boundary = 100.0
+        val position = Variable(0.0)
+        val v = Variable(10.0)
+        val train = object : Continuous() {
+            override fun derivatives() {
+                position.rate = v.state
+                val s = boundary - position.state
+                v.rate = if (s > 1e-12 && v.state > 0.0) -v.state * v.state / (2.0 * s) else 0.0
+            }
+        }
+        var fired = false
+        var gateTime = Double.NaN
+
+        runSimulation(endTime = 200.0) {
+            dtMax = 1.0
+            dtMin = 1e-5
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    position.start(); v.start(); train.start()
+                    // Threshold beyond the asymptote: the train stops short and never reaches it.
+                    waitUntilCrossing { (boundary + 1e-3) - position.state }
+                    gateTime = time()
+                    fired = true  // must NOT run
+                    train.stop(); v.stop(); position.stop()
+                }
+            })
+        }
+
+        assertThat(fired).isFalse()
+        assertThat(gateTime.isNaN()).isTrue()
+        assertThat(position.state).isLessThan(boundary + 1e-3)
     }
 
     // --- Semantics point 3: satisfied within a step → root-find and roll back ---
@@ -438,6 +480,39 @@ class WaitUntilCrossingTest {
     }
 
     /**
+     * Situation 10: a non-monotone guard that departs from and returns to the satisfied region
+     * *entirely within a single accepted step*. Both step endpoints show the guard positive, so
+     * [ContinuousMonitor.locateCrossings] (which compares endpoint signs) and the post-step
+     * [SimulationContext.checkLevelCrossings] never see it satisfied — the within-step dip is
+     * missed. This pins the same endpoint-sampling limitation [waitCrossing] documents, now for
+     * the level-triggered primitive, so it is intentional rather than accidental.
+     */
+    @Test
+    fun nonMonotoneGuardDippingWithinOneStepIsNotDetected() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0 }  // drives a single [0,1] step
+        }
+        var fired = false
+
+        runSimulation(endTime = 2.0) {
+            dtMax = 1.0
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    // g(t) = (t - 0.5)^2 - 0.1: +0.15 at t=0 and t=1, negative only at t≈0.5
+                    // (entirely inside the [0,1] step) — both endpoints are positive.
+                    waitUntilCrossing { (time() - 0.5) * (time() - 0.5) - 0.1 }
+                    fired = true  // must NOT run: both endpoints are positive
+                    motion.stop(); x.stop()
+                }
+            })
+        }
+
+        assertThat(fired).isFalse()
+    }
+
+    /**
      * Contrast test: waitCrossing (edge-triggered) fires on an upward crossing of the guard,
      * while waitUntilCrossing with the same rising guard returns immediately at registration
      * (guard already <= 0). Documents the intentional semantic difference.
@@ -543,6 +618,146 @@ class WaitUntilCrossingTest {
 
         assertThat(abs(timeA - 2.5)).isLessThan(1e-6)
         assertThat(abs(timeB - 6.5)).isLessThan(1e-6)
+    }
+
+    /**
+     * Situation 6: two level waiters whose thresholds both fall inside one dtMax step, crossing
+     * ~1e-7 apart. [ContinuousMonitor.locateCrossings] picks the earliest, rolls all variables
+     * back to that crossing time, and breaks. The loser must NOT be spuriously fired at the
+     * winner's time, and must NOT be lost — it re-samples at the rolled-back state and fires at
+     * its own (later) crossing on the next pass. This is the knife-edge shape of issue #797.
+     */
+    @Test
+    fun twoWaitersCrossingWithinSameStepLoserNeitherLostNorSpuriouslyFired() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0 }
+        }
+        var timeA = Double.NaN
+        var timeB = Double.NaN
+
+        runSimulation(endTime = 20.0) {
+            dtMax = 1.0
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    hold(20.0)
+                    motion.stop(); x.stop()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntilCrossing { 5.5 - x.state }
+                    timeA = time()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntilCrossing { (5.5 + 1e-7) - x.state }
+                    timeB = time()
+                }
+            })
+        }
+
+        // Winner fires at its precise crossing.
+        assertThat(timeA.isNaN()).isFalse()
+        assertThat(abs(timeA - 5.5)).isLessThan(1e-6)
+        // Loser fires at its OWN (later) crossing — not spuriously at the winner's time.
+        assertThat(timeB.isNaN()).isFalse()
+        assertThat(timeB - timeA).isGreaterThan(1e-8)                    // not the same instant
+        assertThat(abs((timeB - timeA) - 1e-7)).isLessThan(1e-8)       // the genuine later crossing
+    }
+
+    /**
+     * Situation 7: a [ContinuousMonitor.probeStateAt] rollback triggered by the earlier-crossing
+     * waiter A moves waiter B's variable from past-its-threshold (guard satisfied at the [5,6]
+     * step end, y = 6 >= 5.8) back to before-its-threshold (guard = 0.3 > 0 at the rolled-back
+     * t = 5.5). Level semantics must self-heal: B is NOT spuriously fired at A's earlier crossing
+     * time, and fires later at its own genuine crossing (t = 5.8).
+     */
+    @Test
+    fun rollbackMovingLaterWaiterBeforeThresholdDoesNotSpuriouslyFireIt() = runTest {
+        val x = Variable(0.0)
+        val y = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0; y.rate = 1.0 }
+        }
+        var timeA = Double.NaN
+        var timeB = Double.NaN
+
+        runSimulation(endTime = 20.0) {
+            dtMax = 1.0
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); y.start(); motion.start()
+                    hold(20.0)
+                    motion.stop(); x.stop(); y.stop()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntilCrossing { 5.5 - x.state }  // crosses earlier, at t = 5.5
+                    timeA = time()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntilCrossing { 5.8 - y.state }  // crosses later, at t = 5.8
+                    timeB = time()
+                }
+            })
+        }
+
+        assertThat(timeA.isNaN()).isFalse()
+        assertThat(abs(timeA - 5.5)).isLessThan(1e-6)
+        // B's guard was satisfied at the [5,6] step end (y = 6) but the rollback to A's t = 5.5
+        // restores y to 5.5 (guard = 0.3 > 0). B must self-heal: stay parked at 5.5, fire at 5.8.
+        assertThat(timeB.isNaN()).isFalse()
+        assertThat(abs(timeB - 5.8)).isLessThan(1e-6)
+        assertThat(timeB - timeA).isGreaterThan(0.1)   // B did NOT fire at A's earlier time
+    }
+
+    /**
+     * Multiple level waiters on the *same* threshold all resume at the same crossing time. This
+     * exercises both release paths together: [ContinuousMonitor.locateCrossings] fires the
+     * earliest notice (removing only it), then [SimulationContext.checkLevelCrossings] fires the
+     * remaining notices at the same rolled-back time — so no waiter is left behind.
+     */
+    @Test
+    fun multipleLevelWaitersOnSameThresholdResumeTogether() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 1.0 }
+        }
+        var timeA = Double.NaN
+        var timeB = Double.NaN
+        var timeC = Double.NaN
+
+        runSimulation(endTime = 20.0) {
+            dtMax = 1.0
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    hold(20.0)
+                    motion.stop(); x.stop()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() { waitUntilCrossing { 5.5 - x.state }; timeA = time() }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() { waitUntilCrossing { 5.5 - x.state }; timeB = time() }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() { waitUntilCrossing { 5.5 - x.state }; timeC = time() }
+            })
+        }
+
+        // All three fire at the same crossing time.
+        assertThat(timeA.isNaN()).isFalse()
+        assertThat(abs(timeA - 5.5)).isLessThan(1e-6)
+        assertThat(abs(timeB - timeA)).isLessThan(1e-9)
+        assertThat(abs(timeC - timeA)).isLessThan(1e-9)
     }
 
     /** terminate() clears the terminated process's level crossing notice. */
@@ -659,6 +874,53 @@ class WaitUntilCrossingTest {
             })
         }
         assertThat(thrown).isNotNull()
+    }
+
+    /**
+     * A guard returning NaN never resumes the process: `NaN <= 0.0` is false at registration (so
+     * the wait is entered, not returned immediately) and false at every level re-test. The
+     * process stays parked for the whole run — the same (safe) behavior as [waitCrossing].
+     */
+    @Test
+    fun nanGuardLeavesProcessSuspended() = runTest {
+        var fired = false
+        runSimulation(endTime = 5.0) {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntilCrossing { Double.NaN }
+                    fired = true  // must NOT run
+                }
+            })
+        }
+        assertThat(fired).isFalse()
+    }
+
+    /**
+     * A tolerance of 0.0 disables the root-finder's `|g| <= tolerance` early-out and relies on
+     * the bisection bracket collapsing to floating-point resolution. The crossing is still
+     * located precisely (here at t = 3.5), matching the default-tolerance result.
+     */
+    @Test
+    fun zeroToleranceStillLocatesWithinStepCrossing() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() { x.rate = 2.0 }
+        }
+        var crossTime = Double.NaN
+
+        runSimulation(endTime = 20.0) {
+            dtMax = 1.0
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start(); motion.start()
+                    waitUntilCrossing(tolerance = 0.0) { 7.0 - x.state }  // crossing at t = 3.5
+                    crossTime = time()
+                    motion.stop(); x.stop()
+                }
+            })
+        }
+
+        assertThat(abs(crossTime - 3.5)).isLessThan(1e-6)
     }
 
     /**
