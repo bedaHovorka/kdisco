@@ -42,7 +42,8 @@ kotlin {
 
     // Desktop native targets
     linuxX64()
-    macosX64()
+    // macosX64() is deprecated in the Kotlin toolchain (Intel Macs are no longer
+    // a supported target tier); use macosArm64() instead.
     macosArm64()
     // TODO: enable mingwX64 when building on Windows
     // mingwX64()
@@ -65,13 +66,13 @@ kotlin {
         commonMain {
             dependencies {
                 implementation(kotlin("stdlib"))
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${project.property("coroutines.version")}")
             }
         }
         commonTest {
             dependencies {
                 implementation(kotlin("test"))
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${project.property("coroutines.version")}")
                 implementation("com.willowtreeapps.assertk:assertk:${project.property("assertk.version")}")
             }
         }

@@ -63,6 +63,63 @@ class SimulationControlTest {
     }
 
     @Test
+    fun pauseAfterStaleResumeStaysBlocked() = runTest {
+        // step()/resume() called while NOT paused leaves a Unit in the CONFLATED channel.
+        // pause() must drain it so the next paused interval doesn't get an unexpected
+        // immediate unblock.
+        val controller = SimulationController()
+        val log = mutableListOf<Double>()
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    repeat(3) {
+                        log.add(time())
+                        hold(1.0)
+                    }
+                }
+            })
+        }
+        // Fire resume() while not paused — plants a stale Unit in pauseChannel.
+        controller.resume()
+        // Now pause — must drain that stale Unit.
+        controller.pause()
+        val job = launch { sim.run(10.0, controller) }
+        yield()
+        // Simulation must remain paused; no events should have been processed.
+        assertThat(controller.isPaused()).isTrue()
+        assertThat(log).isEmpty()
+        controller.resume()
+        job.join()
+    }
+
+    @Test
+    fun preRunStepLetsThroughExactlyOneEvent() = runTest {
+        // step() called before run() (no preceding pause()): stepsRequested=1, channel has a token.
+        // The step branch in beforeEvent() skips receive(), so the token must be drained there
+        // to prevent it from unblocking the very next receive() call.
+        val controller = SimulationController()
+        val log = mutableListOf<Double>()
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    repeat(3) {
+                        log.add(time())
+                        hold(1.0)
+                    }
+                }
+            })
+        }
+        controller.step()
+        val job = launch { sim.run(10.0, controller) }
+        yield()
+        // Exactly one event must have run; simulation must now be paused.
+        assertThat(log).containsExactly(0.0)
+        assertThat(controller.isPaused()).isTrue()
+        controller.resume()
+        job.join()
+    }
+
+    @Test
     fun throttleApproximatesRealTimeFactor() = runTest {
         val controller = SimulationController()
         val sim = Simulation.create {

@@ -57,6 +57,10 @@ internal class SimulationContext {
     // Wait-until registry: processes suspended waiting for a condition to become true
     internal val waitNotices = mutableListOf<WaitNotice>()
 
+    // State-event registry: processes suspended waiting for a guard function to cross zero.
+    // Located precisely within an integration step by the ContinuousMonitor (root-finding).
+    internal val crossingNotices = mutableListOf<CrossingNotice>()
+
     /**
      * Checks all pending wait conditions. Any process whose condition is now satisfied
      * is scheduled in the event queue at the current simulation time.
@@ -80,9 +84,67 @@ internal class SimulationContext {
             }
         }
     }
+
+    /**
+     * Checks all pending *level-triggered* crossing notices (see [Process.waitUntilCrossing]).
+     * Any notice whose guard is now satisfied (`guard() <= 0`) is removed and its process is
+     * scheduled at the current simulation time.
+     *
+     * Called after each discrete event and after each continuous integration step — the same
+     * cadence as [checkWaitNotices]. This is what makes [Process.waitUntilCrossing] safe for
+     * threshold-reach conditions on variables that may come to rest: a guard that became
+     * satisfied without a sign change being observed at integration-step endpoints (e.g. via
+     * a discrete state change, or a stalled variable already past the threshold) still
+     * releases the waiting process.
+     *
+     * @return true if at least one notice fired (integration should stop so the scheduler
+     *   can process the newly-scheduled event), false otherwise.
+     */
+    internal fun checkLevelCrossings(): Boolean {
+        if (crossingNotices.isEmpty()) return false
+        var fired = false
+        val satisfied = mutableListOf<CrossingNotice>()
+        val iter = crossingNotices.iterator()
+        while (iter.hasNext()) {
+            val notice = iter.next()
+            if (notice.levelTriggered && notice.guard() <= 0.0) {
+                iter.remove()
+                satisfied.add(notice)
+                fired = true
+            }
+        }
+        for (notice in satisfied) {
+            if (!eventQueue.contains(notice.process)) {
+                eventQueue.schedule(notice.process, currentTime)
+            }
+        }
+        return fired
+    }
 }
 
 internal class WaitNotice(
     val process: Process,
     val condition: Condition
+)
+
+/**
+ * A pending state event: a suspended [process] waiting for the [guard] function `g(state, t)`
+ * to change sign. The [ContinuousMonitor] evaluates [guard] across each integration step and,
+ * on a sign change, locates the crossing time by root-finding and resumes [process] there.
+ *
+ * @param tolerance the absolute value below which `|g|` is considered to be on the boundary,
+ *   used to terminate root-finding early.
+ * @param levelTriggered when true (see [Process.waitUntilCrossing]), the notice is
+ *   *level-triggered*: it fires as soon as `guard() <= 0` holds — re-tested after every
+ *   discrete event and every accepted integration step by
+ *   [SimulationContext.checkLevelCrossings] — and only downward (positive → non-positive)
+ *   transitions within a step are root-found. When false (default, [Process.waitCrossing]),
+ *   the notice is *edge-triggered*: it fires only on a strict sign change of the guard at
+ *   accepted integration-step endpoints.
+ */
+internal class CrossingNotice(
+    val process: Process,
+    val guard: () -> Double,
+    val tolerance: Double,
+    val levelTriggered: Boolean = false
 )

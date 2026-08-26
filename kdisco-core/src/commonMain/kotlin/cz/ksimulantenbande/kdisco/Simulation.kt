@@ -179,9 +179,11 @@ class Simulation internal constructor() {
                     // returns here for the next event.
                 }
                 context.checkWaitNotices()
+                context.checkLevelCrossings()
             }
         } finally {
             context.isRunning = false
+            context.currentProcess = null
             Process.activeContext = previousContext
             // Cancel any remaining suspended coroutines (passivated processes that
             // were never reactivated, or processes whose hold() time is past endTime).
@@ -244,6 +246,7 @@ class Simulation internal constructor() {
     /** Number of processes that are running, scheduled, or pending activation. Passivated processes are not counted. */
     fun activeProcessCount(): Int {
         return context.pendingActivations.size + context.eventQueue.size() +
+                context.crossingNotices.size +
                 (if (context.currentProcess != null) 1 else 0)
     }
 

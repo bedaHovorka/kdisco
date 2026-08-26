@@ -27,7 +27,7 @@ kotlin {
                 implementation(kotlin("test"))
                 implementation("io.insert-koin:koin-test:${project.property("koin.version")}")
                 implementation("com.willowtreeapps.assertk:assertk:${project.property("assertk.version")}")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${project.property("coroutines.version")}")
             }
         }
         val jvmMain by getting {

@@ -82,7 +82,8 @@ abstract class Process : Link() {
             }
             cont.invokeOnCancellation {
                 continuation = null
-                _state = ProcessState.PASSIVATED
+                _state = ProcessState.TERMINATED
+                _terminated = true
                 context.eventQueue.remove(this@Process)
             }
         }
@@ -102,6 +103,8 @@ abstract class Process : Link() {
             // Not scheduled in event queue — waits for reactivate()
             cont.invokeOnCancellation {
                 continuation = null
+                _state = ProcessState.TERMINATED
+                _terminated = true
             }
         }
     }
@@ -127,6 +130,8 @@ abstract class Process : Link() {
                 context.waitNotices.add(WaitNotice(this, condition))
                 cont.invokeOnCancellation {
                     continuation = null
+                    _state = ProcessState.TERMINATED
+                    _terminated = true
                     context.waitNotices.removeAll { it.process === this@Process }
                 }
             }
@@ -135,6 +140,144 @@ abstract class Process : Link() {
 
     /** Convenience overload accepting a lambda. */
     suspend fun waitUntil(condition: () -> Boolean) = waitUntil(Condition(condition))
+
+    /**
+     * Suspends this process until the continuous guard function [guard] (`g(state, t)`)
+     * changes sign — a *state event* (zero-crossing).
+     *
+     * Unlike [waitUntil], which only re-checks a boolean condition after each accepted
+     * integration step (resolving a crossing to within one whole step), this locates the
+     * crossing time *within* the step by root-finding (bisection). The process is resumed
+     * exactly at the located crossing time, with all active [Variable]s rolled back to their
+     * values at that instant.
+     *
+     * This lets hybrid discrete/continuous models leave [Simulation.dtMax] at its natural
+     * value and rely on the adaptive error controller for step size, instead of forcing a
+     * tiny `dtMax` so that the overshoot past a boundary is negligible.
+     *
+     * The guard's sign is sampled when [waitCrossing] is called; the process then waits for
+     * the *next* change of that sign. A guard that is already zero (or the wrong sign) at
+     * registration is not treated as an immediate crossing — the process waits for a genuine
+     * sign change during subsequent integration.
+     *
+     * Crossing detection requires at least one active [Continuous] process driving integration.
+     *
+     * **Known limitation**: crossings are detected by comparing the guard's sign at the start
+     * and end of each accepted integration step. A guard that departs from and returns to zero
+     * *entirely within a single step* (e.g. an instantaneous reversal exactly at a boundary) is
+     * not detected, because both endpoints can show the same sign (or a start value of exactly
+     * zero, which this API deliberately excludes from the crossing test). This mirrors a known
+     * limitation of endpoint-based state-event location in ODE solvers generally; a model
+     * relying on detecting such same-step reversals needs a smaller `dtMax` around that
+     * boundary, same as the tiny-`dtMax` workaround this API otherwise replaces.
+     *
+     * **Not suitable for threshold-reach conditions on variables that may come to rest.**
+     * Because this API is *edge-triggered*, a variable that asymptotes towards the threshold
+     * and stops (rate → 0) can leave the process parked permanently: the sign change is either
+     * missed or never observed again, and the guard can never change again because the state
+     * never changes again. For "resume when a monotone state variable reaches a threshold",
+     * use the *level-triggered* [waitUntilCrossing] (same root-finding precision, but also
+     * releases the process whenever the guard is already satisfied), or fall back to
+     * [waitUntil] (whole-step resolution).
+     *
+     * ```kotlin
+     * // Resume exactly when the train front reaches the block boundary.
+     * waitCrossing { boundary - position.state }
+     * ```
+     *
+     * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
+     *   0.0 disables the early-out and relies on the bisection bracket collapsing to
+     *   floating-point resolution (still bounded). Defaults to 1e-9.
+     * @param guard the event function `g(state, t)`; a sign change locates the event.
+     *
+     * Must only be called from within [actions] (i.e., from a running process).
+     */
+    suspend fun waitCrossing(tolerance: Double = 1e-9, guard: () -> Double) {
+        require(tolerance >= 0.0) { "tolerance must be non-negative, got $tolerance" }
+        suspendCancellableCoroutine<Unit> { cont ->
+            _state = ProcessState.SCHEDULED
+            continuation = cont
+            context.crossingNotices.add(CrossingNotice(this, guard, tolerance))
+            cont.invokeOnCancellation {
+                continuation = null
+                context.crossingNotices.removeAll { it.process === this@Process }
+            }
+        }
+    }
+
+    /**
+     * Suspends this process until the continuous guard function [guard] (`g(state, t)`) is
+     * satisfied, i.e. `guard() <= 0` — a *level-triggered*, root-found threshold wait.
+     *
+     * This is the safe primitive for the common case "*resume when a monotone state variable
+     * reaches a threshold*". It combines the precision of [waitCrossing] with the safety of
+     * [waitUntil]:
+     *
+     * 1. **Already satisfied at registration → returns immediately.** If `guard() <= 0` when
+     *    this is called, no wait occurs (unlike [waitCrossing], which always waits for a
+     *    *future* sign change).
+     * 2. **Satisfied between steps or by a discrete event → resumes.** The guard is re-tested
+     *    after every discrete event and after every accepted integration step (like a
+     *    [waitUntil] condition), so no sign-change history is required. A stalled state
+     *    variable that has already passed the threshold still releases the process — the
+     *    hazard that makes edge-triggered [waitCrossing] unsuitable for threshold-reach
+     *    conditions on variables that may come to rest.
+     * 3. **Satisfied within an integration step → root-found and rolled back.** When the guard
+     *    transitions from positive to non-positive inside an accepted step, the crossing time
+     *    is located by bisection and all active [Variable]s are rolled back to their values at
+     *    that instant, exactly as [waitCrossing] does — so `dtMax` can stay at its natural
+     *    value.
+     *
+     * Unlike [waitCrossing], this never fires on an *upward* transition (guard leaving the
+     * satisfied region): only `guard() <= 0` resumes the process.
+     *
+     * No active [Continuous] process is required: with a purely discrete model the guard is
+     * still re-tested after every event (points 1 and 2), only the within-step root-finding
+     * (point 3) needs integration to be running.
+     *
+     * On resume, `guard()` is `<= 0`, except when the within-step root-finder terminated
+     * early at `|guard()| <= tolerance` — the located crossing point can then sit up to
+     * [tolerance] on the positive side of the boundary.
+     *
+     * **Cancellation by [reactivate]/[terminate].** If [Process.reactivate] is called on a process
+     * parked in `waitUntilCrossing`, its level notice is dropped and the process resumes at the
+     * current time (the wait is not re-registered) — the same cleanup [waitCrossing] performs.
+     * [Process.terminate] removes the notice without resuming. Either way the wait is not
+     * silently re-armed, so there is no second permanent-park route via these calls.
+     *
+     * **Known limitation**: as with [waitCrossing], the guard is compared at the start and end of
+     * each accepted integration step (plus the post-step/post-event level re-test). A guard that
+     * departs from and returns to the satisfied region *entirely within a single accepted step*
+     * is not detected, because both endpoints can show the guard positive. A model relying on
+     * detecting such same-step dips needs a smaller `dtMax` around that region.
+     *
+     * ```kotlin
+     * // Resume as soon as the train front has reached the block boundary — precisely when
+     * // the crossing occurs inside a step, and immediately if the position is already past
+     * // (or stalls just past) the boundary.
+     * waitUntilCrossing { boundary - position.state }
+     * ```
+     *
+     * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
+     *   0.0 disables the early-out and relies on the bisection bracket collapsing to
+     *   floating-point resolution (still bounded). Defaults to 1e-9.
+     * @param guard the event function `g(state, t)`; the process resumes when `guard() <= 0`.
+     *
+     * Must only be called from within [actions] (i.e., from a running process).
+     */
+    suspend fun waitUntilCrossing(tolerance: Double = 1e-9, guard: () -> Double) {
+        require(tolerance >= 0.0) { "tolerance must be non-negative, got $tolerance" }
+        if (guard() <= 0.0) return  // level-triggered: already satisfied, no wait
+        suspendCancellableCoroutine<Unit> { cont ->
+            _state = ProcessState.SCHEDULED
+            continuation = cont
+            context.crossingNotices.add(CrossingNotice(this, guard, tolerance, levelTriggered = true))
+            cont.invokeOnCancellation {
+                continuation = null
+                context.crossingNotices.removeAll { it.process === this@Process }
+            }
+        }
+    }
 
     /**
      * Terminates this process immediately.
@@ -151,6 +294,8 @@ abstract class Process : Link() {
             context.eventListeners.forEach { it(event) }
         }
         context.eventQueue.remove(this)
+        continuation = null
+        context.crossingNotices.removeAll { it.process === this@Process }
         throw ProcessTerminatedException()
     }
 
@@ -238,6 +383,7 @@ abstract class Process : Link() {
                 ctx.eventListeners.forEach { it(event) }
             }
             ctx.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
+            ctx.crossingNotices.removeAll { it.process === process }  // clear stale crossing notices
             ctx.eventQueue.remove(process)   // prevent duplicate if already scheduled
             ctx.eventQueue.schedule(process, ctx.currentTime)
         }

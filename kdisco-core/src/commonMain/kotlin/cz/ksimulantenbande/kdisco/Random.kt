@@ -10,10 +10,26 @@ import kotlin.random.Random as KRandom
  *
  * On JVM, delegates to `java.util.Random` to ensure identical random sequences
  * as jDisco's `Random` class (which extends `java.util.Random`). The `normal()`
- * method uses `nextGaussian()` (Marsaglia polar method with caching), and `exp()`
- * and `negexp()` use the same formulas as jDisco.
+ * method uses the Marsaglia polar method with caching (mirroring `nextGaussian()`),
+ * and `exp()` and `negexp()` use the same formulas as jDisco.
  *
  * On other platforms, uses a pure-Kotlin implementation with algorithm parity.
+ *
+ * **Cross-platform determinism**: for the same seed, all distribution draws
+ * ([exp], [negexp], [normal], [poisson], [erlang], [uniform], [draw], [randInt])
+ * produce bit-identical sequences on JVM, JS and Native. The raw stream uses the
+ * same 48-bit LCG everywhere, and the transcendental functions (`ln`, `exp`) go
+ * through [PortableMath] (a pure-Kotlin fdlibm port) instead of `kotlin.math`,
+ * whose implementations differ per platform at the last bit (see issue #69).
+ *
+ * **Thread safety**: not thread-safe. A [Random] instance is confined to its
+ * [Simulation]'s single-threaded dispatcher — [Simulation] runs on
+ * `Dispatchers.Unconfined` with a thread-local-confined `SimulationContext` and
+ * owns exactly one [Random]. Do not share a single instance across threads or
+ * coroutines; if you must use a multi-threaded dispatcher, give each thread its
+ * own [Random]. (This mirrors the pre-PR JVM behavior: `java.util.Random`'s
+ * per-call synchronization never protected the multi-call `normal`/`poisson`/
+ * `erlang` sequences anyway.)
  *
  * Use [Random(seed)] for reproducible simulations. Use [Random()] for
  * non-deterministic runs.

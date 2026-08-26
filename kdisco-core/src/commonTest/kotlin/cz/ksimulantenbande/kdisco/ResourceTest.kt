@@ -169,6 +169,218 @@ class ResourceTest {
     }
 
     /**
+     * Regression guard for the release()-over-reactivation bug (issue #57):
+     * when waiters request different amounts, a release() that frees fewer units
+     * than the head waiter needs must not wake any process, and must not strand
+     * capacity or deadlock later waiters.
+     *
+     * Scenario: capacity=3, fully occupied. W1 wants all 3 units, W2 wants 1.
+     * release(1) at t=1 frees only 1 unit — not enough for W1 — so nobody is
+     * woken. release(2) at t=2 brings total free to 3, enough for W1; W1 gets
+     * served first (FIFO), then W2 gets its unit once W1 releases.
+     */
+    @Test
+    fun releaseDoesNotStrandCapacityWithMixedAmountWaiters() = runTest {
+        val r = Resource(capacity = 3)
+        val log = mutableListOf<String>()
+        runSimulation(endTime = 20.0) {
+            // Holder occupies all 3 units; releases 1 at t=1, then 2 more at t=2.
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(3)
+                    hold(1.0)
+                    r.release(1)
+                    hold(1.0)
+                    r.release(2)
+                }
+            })
+            // W1 wants all 3 units (enqueued ahead of W2).
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(3)
+                    log.add("W1-${fmt(time())}")
+                    r.release(3)
+                }
+            })
+            // W2 wants just 1 unit but arrives behind W1 in the queue.
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve(1)
+                    log.add("W2-${fmt(time())}")
+                    r.release(1)
+                }
+            })
+        }
+        // W1 must be served first (FIFO) at t=2 when all 3 units become free.
+        // W2 gets its unit after W1 releases at t=2.
+        assertThat(log).containsExactly("W1-2.0", "W2-2.0")
+    }
+
+    /**
+     * Regression test: a waiter terminated while still queued must not strand capacity.
+     *
+     * [Process.terminate] does not unlink the process from any [Head]/[Link] it's a
+     * member of, so a terminated waiter can still be found by [Resource.release]'s
+     * reactivation loop. [Process.reactivate] no-ops on a terminated process, so if
+     * `release()` provisionally grants it units before checking termination, those
+     * units are never collected back (a terminated process never re-enters [reserve])
+     * and capacity is lost forever.
+     */
+    @Test
+    fun releaseSkipsTerminatedWaiterWithoutStrandingCapacity() = runTest {
+        val r = Resource(capacity = 1)
+        lateinit var b: Process
+        val log = mutableListOf<String>()
+
+        val a = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1)
+                hold(5.0)
+                r.release(1)
+            }
+        }
+        b = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1) // queues behind `a`; terminated before it can be granted
+                log.add("b-acquired")
+            }
+        }
+        val terminator = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                b.terminate()
+            }
+        }
+        val c = object : Process() {
+            override suspend fun actions() {
+                hold(6.0) // after a releases at t=5
+                r.reserve(1)
+                log.add("c-acquired")
+            }
+        }
+
+        runSimulation(endTime = 20.0) {
+            Process.activate(a)
+            Process.activate(b)
+            Process.activate(terminator)
+            Process.activate(c)
+        }
+
+        // b must never acquire (terminated before its turn); c must still be able to,
+        // proving the unit `a` released wasn't permanently stranded on b's dead grant.
+        assertThat(log).containsExactly("c-acquired")
+    }
+
+    /**
+     * Regression test: a waiter terminated *after* being granted by [Resource.release]
+     * (but before its reactivation event runs) must not strand its grant forever.
+     *
+     * [Process.reactivate] doesn't run synchronously — it schedules the process's
+     * resumption as a normal-priority event. Per [EventQueue]'s documented FIFO
+     * ordering for same-time normal events (ascending insertion order), a process
+     * whose event was scheduled earlier in wall/insertion time — even if for the same
+     * simulated instant — runs first. So another process can be dispatched at the same
+     * simulated instant *between* `release()` granting a waiter and that waiter's own
+     * reactivation event actually running, and terminate it in that window: the
+     * grantee's units would otherwise be lost forever in [totalGranted] since a
+     * terminated process never re-enters [reserve] to collect them.
+     *
+     * Construction: `a`, `b`, `terminator`, `c` are all activated at t=0 in that order.
+     * `a` reserves the only unit then holds 5.0 (scheduling its own resume first,
+     * lowest insertion order among the t=5 events). `terminator` holds 5.0 too, but its
+     * hold-resume is scheduled *after* `a`'s during the t=0 dispatch batch, so its
+     * insertion order is higher than `a`'s but still lower than any event `release()`
+     * creates later. At t=5, `a` runs first, releases, and grants `b` (scheduling `b`'s
+     * reactivation with a fresh, higher insertion order). `terminator` runs next
+     * (its insertion order is lower than b's freshly-created one) and terminates `b`
+     * before `b`'s reactivation event fires — reproducing the race.
+     */
+    @Test
+    fun reserveReclaimsGrantIfGranteeTerminatesBeforeCollecting() = runTest {
+        val r = Resource(capacity = 1)
+        lateinit var b: Process
+        val log = mutableListOf<String>()
+
+        val a = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1)
+                hold(5.0)
+                r.release(1) // grants b's queued slot at t=5
+            }
+        }
+        b = object : Process() {
+            override suspend fun actions() {
+                r.reserve(1) // queued behind a; granted at t=5 but terminated before resuming
+                log.add("b-acquired")
+            }
+        }
+        val terminator = object : Process() {
+            override suspend fun actions() {
+                hold(5.0) // scheduled after `a`'s hold during the t=0 batch: higher order than a's,
+                          // but still lower than b's reactivation (created later, during a's release()).
+                b.terminate()
+            }
+        }
+        val c = object : Process() {
+            override suspend fun actions() {
+                hold(6.0)
+                r.reserve(1)
+                log.add("c-acquired")
+            }
+        }
+
+        runSimulation(endTime = 20.0) {
+            Process.activate(a)
+            Process.activate(b)
+            Process.activate(terminator)
+            Process.activate(c)
+        }
+
+        // b must never acquire (terminated before it could collect its grant); c must
+        // still be able to, proving the unit wasn't permanently stranded in totalGranted.
+        assertThat(log).containsExactly("c-acquired")
+    }
+
+    /**
+     * Calling [Resource.release] from [Continuous.derivatives] must throw [DiscoException].
+     *
+     * Regression guard for Issue #58: `release()` lacked a `monitorActive` guard, so calling
+     * it during RKF45 integration could corrupt accounting (the integrator invokes
+     * `derivatives()` multiple times per step, including for rejected trial steps).
+     */
+    @Test
+    fun releaseFromDerivativesThrowsDiscoException() = runTest {
+        val r = Resource()
+        var thrownException: Throwable? = null
+
+        val dynamics = object : Continuous() {
+            override fun derivatives() {
+                try {
+                    r.release()
+                } catch (e: DiscoException) {
+                    thrownException = e
+                }
+            }
+        }
+
+        runSimulation(endTime = 5.0) {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve()
+                    dynamics.start()
+                    hold(1.0)
+                    dynamics.stop()
+                    r.release()
+                }
+            })
+        }
+
+        assertThat(thrownException).isNotNull()
+        assertThat(thrownException!!.message).isNotNull()
+        assertThat(thrownException!!.message!!).contains("release")
+    }
+
+    /**
      * Formats a double with one trailing decimal place, matching JVM `Double.toString()`
      * behaviour on JS where whole numbers are rendered without `.0`.
      */

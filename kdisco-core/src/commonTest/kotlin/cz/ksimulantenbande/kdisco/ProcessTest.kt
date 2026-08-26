@@ -385,4 +385,68 @@ class ProcessTest {
         }
         assertThat(observed).isEqualTo("true-false-false")
     }
+
+    @Test
+    fun processInHoldIsTerminatedAfterSimulationEnd() = runTest {
+        val p = object : Process() {
+            override suspend fun actions() {
+                hold(100.0)
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(p.terminated()).isTrue()
+        assertThat(p.isActive()).isFalse()
+        assertThat(p.isPassivated()).isFalse()
+    }
+
+    @Test
+    fun processInWaitUntilIsTerminatedAfterSimulationEnd() = runTest {
+        val p = object : Process() {
+            override suspend fun actions() {
+                waitUntil { false }
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(p.terminated()).isTrue()
+        assertThat(p.isActive()).isFalse()
+        assertThat(p.isPassivated()).isFalse()
+    }
+
+    @Test
+    fun passivatedProcessIsTerminatedAfterSimulationEnd() = runTest {
+        val p = object : Process() {
+            override suspend fun actions() {
+                passivate()
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(p.terminated()).isTrue()
+        assertThat(p.isActive()).isFalse()
+        assertThat(p.isPassivated()).isFalse()
+    }
+
+    @Test
+    fun reactivateIsNoOpOnProcessCancelledBySimulationEnd() = runTest {
+        val p = object : Process() {
+            override suspend fun actions() {
+                hold(100.0)
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(p.terminated()).isTrue()
+        Process.reactivate(p)
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(p.isActive()).isFalse()
+    }
 }
