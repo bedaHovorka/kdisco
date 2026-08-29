@@ -92,7 +92,7 @@ class SimulationResumeTest {
             timerB to Timer("B", 3.0, stopBefore, log2)
         )
         val resumedEvents = capturedEvents.map { e ->
-            PendingEvent(e.time, processMap.getValue(e.process))
+            e.copy(process = processMap.getValue(e.process))
         }
 
         val resumedSim = Simulation.resume(resumedEvents, capturedClock, capturedRng)
@@ -155,7 +155,7 @@ class SimulationResumeTest {
             w1 to RandomWorker(1, log2)
         )
         val resumedEvents = capturedEvents.map { e ->
-            PendingEvent(e.time, processMap.getValue(e.process))
+            e.copy(process = processMap.getValue(e.process))
         }
 
         Simulation.resume(resumedEvents, capturedClock, capturedRng).run(endTime)
@@ -179,7 +179,7 @@ class SimulationResumeTest {
 
         val rngState = Random().captureState()
         val resumedSim = Simulation.resume(
-            events = listOf(PendingEvent(time = 42.0, process = sentinel)),
+            events = listOf(PendingEvent(process = sentinel, time = 42.0, priority = false, insertionOrder = 0L)),
             clockTime = 42.0,
             randomState = rngState
         )
@@ -206,7 +206,7 @@ class SimulationResumeTest {
 
         val rngState = Random().captureState()
         val resumedSim = Simulation.resume(
-            events   = listOf(PendingEvent(10.0, processA)),
+            events   = listOf(PendingEvent(processA, 10.0, priority = false, insertionOrder = 0L)),
             clockTime = 10.0,
             randomState = rngState
         ) {
