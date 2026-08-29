@@ -520,7 +520,7 @@ class ProcessTest {
             Process.activate(resumer)
         }
         assertThat(resumes).isEqualTo(1)
-        assertThat(worker.terminated()).isTrue()
+        assertThat(worker.isTerminated()).isTrue()
     }
 
     @Test
@@ -559,6 +559,6 @@ class ProcessTest {
             Process.activate(p)
         }
         assertThat(executions).isEqualTo(1)
-        assertThat(p.terminated()).isTrue()
+        assertThat(p.isTerminated()).isTrue()
     }
 }
