@@ -67,4 +67,21 @@ expect class Random {
 
 	/** Erlang distributed double with shape [b] and mean [a]*[b]. */
 	fun erlang(a: Double, b: Double): Double
+
+	/**
+	 * Captures a complete snapshot of the generator's current internal state,
+	 * including the LCG seed and any cached Gaussian value (Marsaglia polar method).
+	 *
+	 * The returned [RandomState] can be passed to [restoreState] to reset this
+	 * generator to exactly this point, so that subsequent draws reproduce the
+	 * same sequence.
+	 */
+	fun captureState(): RandomState
+
+	/**
+	 * Restores the generator to a previously captured state. After this call,
+	 * every distribution method will produce the same sequence as it would have
+	 * produced had the generator never advanced past the captured point.
+	 */
+	fun restoreState(state: RandomState)
 }
