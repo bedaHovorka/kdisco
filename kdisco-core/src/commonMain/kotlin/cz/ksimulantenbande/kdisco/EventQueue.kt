@@ -53,6 +53,24 @@ internal class EventQueue {
     /** Returns an ordered snapshot of all pending events without mutating the queue. */
     fun snapshot(): List<PendingEvent> = events.map { PendingEvent(it.process, it.time, it.priority, it.insertionOrder) }
 
+    /**
+     * Re-inserts an event captured by [snapshot], keeping its original [insertionOrder]
+     * so the equal-time ordering of the captured run is reproduced exactly.
+     *
+     * [schedule] cannot be used for this: it allocates a fresh counter value, which would
+     * renumber the restored events and reverse equal-time priority (LIFO) groups. This
+     * also advances the queue's counters past the restored value, so events scheduled
+     * after a restore still order correctly relative to the restored ones.
+     */
+    fun restore(process: Process, time: Double, priority: Boolean, insertionOrder: Long) {
+        if (priority) {
+            if (insertionOrder <= priorityCounter) priorityCounter = insertionOrder - 1
+        } else {
+            if (insertionOrder >= normalCounter) normalCounter = insertionOrder + 1
+        }
+        events.add(findInsertionPoint(time, insertionOrder), ScheduledEvent(process, time, insertionOrder, priority))
+    }
+
     private fun findInsertionPoint(time: Double, order: Long): Int {
         var low = 0
         var high = events.size
