@@ -352,10 +352,16 @@ abstract class Process : Link() {
 
         /**
          * Schedules a process to begin execution after an optional delay.
+         *
+         * No-op if [process] is already active (see [isActive]) — i.e. currently
+         * running or already scheduled to run. The existing schedule wins; no
+         * duplicate event is created. To reschedule an already-scheduled process
+         * at the current time, use [reactivate].
          */
         fun activate(process: Process, delay: Double = 0.0) {
             require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
             val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
+            if (process.isActive()) return  // already running or scheduled — no duplicate event
             process.context = ctx
             process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {

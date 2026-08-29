@@ -481,4 +481,84 @@ class ProcessTest {
         assertThat(thrownException!!.message).isNotNull()
         assertThat(thrownException.message!!).contains("No current process")
     }
+
+    @Test
+    fun duplicateActivateBeforeRunSchedulesOnlyOnce() = runTest {
+        var executions = 0
+        val p = object : Process() {
+            override suspend fun actions() {
+                executions++
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+            Process.activate(p)  // duplicate — must be a no-op
+        }
+        assertThat(executions).isEqualTo(1)
+    }
+
+    @Test
+    fun duplicateActivateAtSameInstantResumesPassivatedProcessOnce() = runTest {
+        var resumes = 0
+        val worker = object : Process() {
+            override suspend fun actions() {
+                passivate()
+                resumes++
+                hold(1.0)
+            }
+        }
+        val resumer = object : Process() {
+            override suspend fun actions() {
+                hold(2.0)
+                // Two resume paths firing at the same instant
+                Process.activate(worker)
+                Process.activate(worker)
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(worker)
+            Process.activate(resumer)
+        }
+        assertThat(resumes).isEqualTo(1)
+        assertThat(worker.terminated()).isTrue()
+    }
+
+    @Test
+    fun activateOnProcessMidHoldIsNoOp() = runTest {
+        val times = mutableListOf<Double>()
+        val worker = object : Process() {
+            override suspend fun actions() {
+                hold(10.0)
+                times.add(time())
+            }
+        }
+        val meddler = object : Process() {
+            override suspend fun actions() {
+                hold(2.0)
+                Process.activate(worker, delay = 1.0)  // worker already scheduled — no-op
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(worker)
+            Process.activate(meddler)
+        }
+        assertThat(times).isEqualTo(listOf(10.0))
+    }
+
+    @Test
+    fun activateOnRunningProcessIsNoOp() = runTest {
+        var executions = 0
+        val p = object : Process() {
+            override suspend fun actions() {
+                executions++
+                Process.activate(this)  // self-activation while running — no-op
+                hold(1.0)
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(p)
+        }
+        assertThat(executions).isEqualTo(1)
+        assertThat(p.terminated()).isTrue()
+    }
 }
