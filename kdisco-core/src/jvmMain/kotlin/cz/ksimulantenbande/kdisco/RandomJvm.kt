@@ -5,10 +5,13 @@ package cz.ksimulantenbande.kdisco
 
 import kotlin.math.sqrt
 import kotlin.random.Random as KRandom
-import kotlin.random.asKotlinRandom
 
 /**
- * JVM implementation of [Random] backed by [java.util.Random].
+ * JVM implementation of [Random] using the same 48-bit LCG as `java.util.Random`
+ * so that seeded sequences are deterministic and **match jDisco output**, including:
+ * - `normal()` → Marsaglia polar method with caching (identical to `java.util.Random.nextGaussian()`)
+ * - `exp()` → `-a * ln(u)` (matching jDisco exactly)
+ * - `negexp()` → `-ln(u) / a` (matching jDisco exactly)
  *
  * This preserves the random sequences of jDisco's `Random` class
  * (which extends `java.util.Random`), including:
@@ -30,21 +33,23 @@ import kotlin.random.asKotlinRandom
  * to fdlibm, so on a JVM whose `Math.log` differs from `StrictMath.log` the
  * `exp()`/`negexp()` draw shifts by <= 1 ulp — the intended trade-off for
  * byte-identical cross-platform streams (pinned by `PortableMathStrictMathParityTest`).
+ *
+ * State is managed entirely within this class (a faithful reimplementation of the
+ * `java.util.Random` 48-bit LCG, so sequences are unchanged), which enables
+ * [captureState]/[restoreState] without reflection.
  */
 actual class Random {
-	private val jRandom: java.util.Random
+	private var seed: Long
 	private var nextNextGaussian: Double = 0.0
 	private var haveNextNextGaussian: Boolean = false
 
-	actual constructor() {
-		jRandom = java.util.Random()
-	}
+	actual constructor() : this(defaultSeed())
 
 	actual constructor(seed: Long) {
-		jRandom = java.util.Random(seed)
+		this.seed = initialScramble(seed)
 	}
 
-	actual fun asKotlinRandom(): KRandom = jRandom.asKotlinRandom()
+	actual fun asKotlinRandom(): KRandom = kotlinRandom
 
 	actual fun normal(mean: Double, stdDev: Double): Double {
 		require(stdDev >= 0.0) { "stdDev must be non-negative, got $stdDev" }
@@ -66,8 +71,8 @@ actual class Random {
 		var v2: Double
 		var s: Double
 		do {
-			v1 = 2.0 * jRandom.nextDouble() - 1.0
-			v2 = 2.0 * jRandom.nextDouble() - 1.0
+			v1 = 2.0 * nextDouble() - 1.0
+			v2 = 2.0 * nextDouble() - 1.0
 			s = v1 * v1 + v2 * v2
 		} while (s >= 1.0 || s == 0.0)
 		val multiplier = sqrt(-2.0 * PortableMath.ln(s) / s)
@@ -79,8 +84,32 @@ actual class Random {
 	/** Returns nextDouble(), re-sampling if exactly 0.0 to avoid log(0) = -Infinity. */
 	private fun nextDoubleNonZero(): Double {
 		var d: Double
-		do { d = jRandom.nextDouble() } while (d == 0.0)
+		do { d = nextDouble() } while (d == 0.0)
 		return d
+	}
+
+	private fun next(bits: Int): Int {
+		seed = (seed * MULTIPLIER + ADDEND) and MASK
+		return (seed ushr (48 - bits)).toInt()
+	}
+
+	private fun nextDouble(): Double {
+		return ((next(26).toLong() shl 27) + next(27)) / (1L shl 53).toDouble()
+	}
+
+	private fun nextInt(bound: Int): Int {
+		require(bound > 0) { "bound must be positive, got $bound" }
+		if (bound and -bound == bound) {
+			// Power of two: fast path
+			return ((bound.toLong() * next(31)) shr 31).toInt()
+		}
+		var bits: Int
+		var value: Int
+		do {
+			bits = next(31)
+			value = bits % bound
+		} while (bits - value + (bound - 1) < 0)
+		return value
 	}
 
 	actual fun negexp(a: Double): Double {
@@ -93,18 +122,18 @@ actual class Random {
 	}
 
 	actual fun uniform(a: Double, b: Double): Double {
-		return a + (b - a) * jRandom.nextDouble()
+		return a + (b - a) * nextDouble()
 	}
 
 	actual fun draw(a: Double): Boolean {
-		return jRandom.nextDouble() < a
+		return nextDouble() < a
 	}
 
 	actual fun randInt(a: Int, b: Int): Int {
 		require(a <= b) { "Lower bound a=$a must be <= upper bound b=$b" }
 		val range = b.toLong() - a.toLong() + 1L
 		require(range <= Int.MAX_VALUE) { "Range [$a, $b] too large (size $range exceeds Int.MAX_VALUE)" }
-		return a + jRandom.nextInt(range.toInt())
+		return a + nextInt(range.toInt())
 	}
 
 	actual fun poisson(a: Double): Int {
@@ -113,7 +142,7 @@ actual class Random {
 		var p = 1.0
 		do {
 			k++
-			p *= jRandom.nextDouble()
+			p *= nextDouble()
 		} while (p > limit)
 		return k - 1
 	}
@@ -126,4 +155,33 @@ actual class Random {
 		}
 		return sum
 	}
+
+	actual fun captureState(): RandomState = RandomState(
+		longArrayOf(
+			seed,
+			nextNextGaussian.toBits(),
+			if (haveNextNextGaussian) 1L else 0L,
+		)
+	)
+
+	actual fun restoreState(state: RandomState) {
+		seed = state.data[0]
+		nextNextGaussian = Double.fromBits(state.data[1])
+		haveNextNextGaussian = state.data[2] != 0L
+	}
+
+	private val kotlinRandom: KRandom by lazy {
+		object : KRandom() {
+			override fun nextBits(bitCount: Int): Int = next(bitCount)
+		}
+	}
+
+	private companion object {
+		private const val MULTIPLIER = 0x5DEECE66DL
+		private const val ADDEND = 0xBL
+		private const val MASK = (1L shl 48) - 1
+		private fun initialScramble(seed: Long): Long = (seed xor MULTIPLIER) and MASK
+		private fun defaultSeed(): Long = KRandom.Default.nextLong()
+	}
 }
+
