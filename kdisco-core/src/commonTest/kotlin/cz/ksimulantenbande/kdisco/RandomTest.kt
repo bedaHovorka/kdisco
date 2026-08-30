@@ -124,12 +124,12 @@ class RandomTest {
         r.normal(0.0, 1.0)
 
         val state = r.captureState()
-        val fromCache = r.normal(0.0, 1.0)       // returns cached value, clears cache
-        val afterCache = r.normal(0.0, 1.0)      // generates fresh pair
+        val fromCache = r.normal(0.0, 1.0) // returns cached value, clears cache
+        val afterCache = r.normal(0.0, 1.0) // generates fresh pair
 
         r.restoreState(state)
-        assertThat(r.normal(0.0, 1.0)).isEqualTo(fromCache)   // must match cached value
-        assertThat(r.normal(0.0, 1.0)).isEqualTo(afterCache)  // must match next generated
+        assertThat(r.normal(0.0, 1.0)).isEqualTo(fromCache) // must match cached value
+        assertThat(r.normal(0.0, 1.0)).isEqualTo(afterCache) // must match next generated
     }
 
     @Test
@@ -144,4 +144,3 @@ class RandomTest {
         assertThat(after).isEqualTo(before)
     }
 }
-

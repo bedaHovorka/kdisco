@@ -84,19 +84,22 @@ actual class Random {
     /** Returns nextDouble(), re-sampling if exactly 0.0 to avoid log(0) = -Infinity. */
     private fun nextDoubleNonZero(): Double {
         var d: Double
-        do { d = nextDouble() } while (d == 0.0)
+        do {
+            d = nextDouble()
+        } while (d == 0.0)
         return d
     }
 
+    @Suppress("MagicNumber")
     private fun next(bits: Int): Int {
         seed = (seed * MULTIPLIER + ADDEND) and MASK
         return (seed ushr (48 - bits)).toInt()
     }
 
-    private fun nextDouble(): Double {
-        return ((next(26).toLong() shl 27) + next(27)) / (1L shl 53).toDouble()
-    }
+    @Suppress("MagicNumber")
+    private fun nextDouble(): Double = ((next(26).toLong() shl 27) + next(27)) / (1L shl 53).toDouble()
 
+    @Suppress("MagicNumber")
     private fun nextInt(bound: Int): Int {
         require(bound > 0) { "bound must be positive, got $bound" }
         if (bound and -bound == bound) {
@@ -117,17 +120,11 @@ actual class Random {
         return -PortableMath.ln(nextDoubleNonZero()) / a
     }
 
-    actual fun exp(a: Double): Double {
-        return -a * PortableMath.ln(nextDoubleNonZero())
-    }
+    actual fun exp(a: Double): Double = -a * PortableMath.ln(nextDoubleNonZero())
 
-    actual fun uniform(a: Double, b: Double): Double {
-        return a + (b - a) * nextDouble()
-    }
+    actual fun uniform(a: Double, b: Double): Double = a + (b - a) * nextDouble()
 
-    actual fun draw(a: Double): Boolean {
-        return nextDouble() < a
-    }
+    actual fun draw(a: Double): Boolean = nextDouble() < a
 
     actual fun randInt(a: Int, b: Int): Int {
         require(a <= b) { "Lower bound a=$a must be <= upper bound b=$b" }
@@ -184,4 +181,3 @@ actual class Random {
         private fun defaultSeed(): Long = KRandom.Default.nextLong()
     }
 }
-
