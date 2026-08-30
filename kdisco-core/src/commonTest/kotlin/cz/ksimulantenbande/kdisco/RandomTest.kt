@@ -48,6 +48,25 @@ class RandomTest {
     }
 
     @Test
+    fun randIntWithPowerOfTwoRangeReturnsInRange() {
+        val r = Random(1L)
+        repeat(1000) {
+            // [0, 3] is a range of size 4 — exercises nextInt's power-of-two fast path.
+            val v = r.randInt(0, 3)
+            assertThat(v).isBetween(0, 3)
+        }
+    }
+
+    @Test
+    fun asKotlinRandomProducesDeterministicSequenceFromTheSameSeed() {
+        val r1 = Random(7L).asKotlinRandom()
+        val r2 = Random(7L).asKotlinRandom()
+        repeat(20) {
+            assertThat(r2.nextInt()).isEqualTo(r1.nextInt())
+        }
+    }
+
+    @Test
     fun negexpReturnsPositive() {
         val r = Random(1L)
         repeat(1000) {
@@ -142,5 +161,21 @@ class RandomTest {
         r2.captureState() // capturing must not advance the generator
         val after = drawN(r2, 5)
         assertThat(after).isEqualTo(before)
+    }
+
+    @Test
+    fun randomStateEqualityIsStructural() {
+        val r1 = Random(9L)
+        val r2 = Random(9L)
+        r1.uniform(0.0, 1.0)
+        r2.uniform(0.0, 1.0)
+
+        val state1 = r1.captureState()
+        val state2 = r2.captureState()
+
+        assertThat(state1).isEqualTo(state2)
+        assertThat(state1.hashCode()).isEqualTo(state2.hashCode())
+        assertThat(state1).isNotEqualTo(Random(10L).captureState())
+        assertThat(state1.equals("not a RandomState")).isFalse()
     }
 }
