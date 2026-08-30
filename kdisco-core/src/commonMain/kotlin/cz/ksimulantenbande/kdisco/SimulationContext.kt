@@ -80,6 +80,10 @@ internal class SimulationContext {
      * is scheduled in the event queue at the current simulation time.
      *
      * Called after each discrete event and after each continuous integration step.
+     *
+     * [Condition.test] is user code evaluated while [waitNotices] is being iterated, so a condition
+     * that mutates the registry — by calling [Process.reactivate] or [Process.terminate] on any
+     * process — can throw a concurrent-modification error. Conditions are expected to be pure.
      */
     internal fun checkWaitNotices() {
         if (waitNotices.isEmpty()) return
@@ -143,6 +147,13 @@ internal class SimulationContext {
     }
 }
 
+/**
+ * A pending condition wait: [process] is parked until [condition] tests true.
+ *
+ * Deliberately *not* a data class. [Process.waitUntil] identifies its own notice by reference when
+ * it re-parks after a spurious wake-up, so structural equality would let it match a different
+ * process's notice over the same condition. The same holds for [CrossingNotice].
+ */
 internal class WaitNotice(
     val process: Process,
     val condition: Condition

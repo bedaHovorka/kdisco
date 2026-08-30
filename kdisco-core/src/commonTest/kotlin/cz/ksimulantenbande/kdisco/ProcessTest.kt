@@ -813,4 +813,46 @@ class ProcessTest {
         // The waiting process (in waitNotices) + this checking process itself (currentProcess).
         assertThat(countWhileWaiting).isEqualTo(2)
     }
+
+    /**
+     * Where a surviving extra turn lands. `activate` on a wait-parked process queues a turn that is
+     * delivered at whatever suspension point the process reaches next. When that is `passivate` —
+     * the shape in Issue #73 — it is consumed cleanly. When it is a `hold`, the hold returns at once
+     * and its own event stays queued, so the surplus resume moves on to the following suspension
+     * point.
+     *
+     * This pins the current semantics rather than endorsing them; `hold` does not yet have the
+     * spurious-resume discipline `waitUntil` and the crossing waits now have.
+     */
+    @Test
+    fun extraTurnGrantedDuringWaitUntilLandsOnTheNextSuspensionPoint() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        var running = false
+        val worker = object : Process() {
+            override suspend fun actions() {
+                running = true
+                waitUntil { !running }
+                log.add("waitDone" to time())
+                hold(5.0)
+                log.add("holdDone" to time())
+                passivate()
+                log.add("afterPassivate" to time())
+            }
+        }
+        runSimulation(endTime = 60.0) {
+            Process.activate(worker)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    running = false
+                    Process.activate(worker)
+                }
+            })
+        }
+        // hold(5.0) is cut short by the surplus resume at t=1; the event it queued still fires at
+        // t=6 and is absorbed by passivate().
+        assertThat(log).isEqualTo(
+            listOf("waitDone" to 1.0, "holdDone" to 1.0, "afterPassivate" to 6.0)
+        )
+    }
 }

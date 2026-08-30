@@ -33,7 +33,10 @@ internal enum class ProcessState {
     /** Currently executing [Process.actions]. */
     RUNNING,
 
-    /** Suspended with an event in the queue; resumes automatically (e.g. after [hold]). */
+    /**
+     * Has a turn coming without an explicit [Process.reactivate] — an event in the queue
+     * (e.g. after [hold]) or, before [Simulation.run] starts, a pending activation.
+     */
     SCHEDULED,
 
     /**
@@ -146,7 +149,10 @@ abstract class Process : Link() {
      * continuous-integration step.
      *
      * The condition may be checked spuriously; [waitUntil] loops until it is confirmed
-     * true before returning.
+     * true before returning. An independent [Process.activate] on a parked process is one such
+     * spurious wake-up: the loop absorbs it while the condition is false, and the extra turn
+     * survives only once the condition is confirmed true. [Process.reactivate] likewise resumes
+     * the process, which re-tests the condition and re-parks if it is still false.
      *
      * Must only be called from within [actions] (i.e., from a running process).
      */
@@ -213,6 +219,12 @@ abstract class Process : Link() {
      * waitCrossing { boundary - position.state }
      * ```
      *
+     * **Cancellation by [reactivate]/[terminate], and [activate].** [Process.reactivate] drops the
+     * crossing notice and resumes the process at the current time; [Process.terminate] drops it
+     * without resuming. [Process.activate] does neither — it queues a turn, which this wait absorbs
+     * by re-parking while its notice is still registered, so the process still resumes at the
+     * crossing and nowhere else.
+     *
      * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
      *   0.0 disables the early-out and relies on the bisection bracket collapsing to
      *   floating-point resolution (still bounded). Defaults to 1e-9.
@@ -264,6 +276,8 @@ abstract class Process : Link() {
      * current time (the wait is not re-registered) — the same cleanup [waitCrossing] performs.
      * [Process.terminate] removes the notice without resuming. Either way the wait is not
      * silently re-armed, so there is no second permanent-park route via these calls.
+     * [Process.activate] is not a cancellation: the turn it queues is absorbed by the re-park loop
+     * while the level notice is still registered, so the wait still ends at the crossing.
      *
      * **Known limitation**: as with [waitCrossing], the guard is compared at the start and end of
      * each accepted integration step (plus the post-step/post-event level re-test). A guard that
@@ -365,19 +379,21 @@ abstract class Process : Link() {
             _state == ProcessState.WAITING
 
     /**
-     * Returns true if this process is parked on a condition or guard notice — suspended in
-     * [waitUntil], [waitCrossing] or [waitUntilCrossing].
+     * Returns true while this process is parked on a condition or guard notice — suspended in
+     * [waitUntil], [waitCrossing] or [waitUntilCrossing] — *and* has no turn queued.
      *
-     * A waiting process has no event in the event queue; its wake-up is owned by the notice
-     * registry. [Process.activate] therefore grants it an *additional* turn instead of being a
-     * no-op, and [Process.reactivate] cancels the wait outright.
+     * A waiting process's wake-up is owned by the notice registry, not the event queue, which is
+     * why [activate] treats it differently from a [hold]-scheduled process. Note that an [activate]
+     * on a waiting process queues a turn and moves it to [ProcessState.SCHEDULED], so this reports
+     * false from that moment until the turn is taken, even though the wait itself is still pending.
      */
     fun isWaiting(): Boolean = _state == ProcessState.WAITING
 
     /**
-     * True when this process already has a turn coming from the event queue — [ProcessState.RUNNING]
-     * or [ProcessState.SCHEDULED]. This, not [isActive], is what [activate] must guard on: a
-     * [ProcessState.WAITING] process has no queued event, so activating it is not a duplicate.
+     * True when this process already has a turn — it is [ProcessState.RUNNING], or
+     * [ProcessState.SCHEDULED] with an event queued (or a pending activation, before the run
+     * starts). This, not [isActive], is what [activate] guards on: a [ProcessState.WAITING] process
+     * has no turn of its own, so activating it is not a duplicate.
      */
     internal fun isRunningOrScheduled(): Boolean =
         _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
@@ -417,11 +433,25 @@ abstract class Process : Link() {
          * process to the current time, use [reactivate].
          *
          * A process parked in [waitUntil], [waitCrossing] or [waitUntilCrossing] is deliberately
-         * **not** covered by that guard. Such a process has no queued event — its wake-up lives in
-         * the notice registry — so `activate` queues an independent event and the process gets an
-         * *additional* turn once the wait itself has resumed it. The two wake-ups are separate
-         * intents and neither may be spent on the other (issue #73). Use [reactivate] instead when
-         * the intent is to *cancel* the pending wait rather than to queue a turn after it.
+         * **not** covered by that guard. Such a process has no turn of its own — its wake-up lives
+         * in the notice registry — so `activate` queues an independent one. The two wake-ups are
+         * separate intents and neither may be spent on the other (issue #73). What the queued turn
+         * then does depends on the primitive, and none of them ends the wait early:
+         *
+         * - **[waitUntil]**: the turn re-enters the condition loop. If the condition is confirmed
+         *   true the wait ends and the turn survives as a genuine extra resume — the case issue #73
+         *   describes. If the condition is still false the loop re-parks and the turn is absorbed.
+         * - **[waitCrossing] / [waitUntilCrossing]**: the turn is always absorbed. These are
+         *   root-found waits with no condition to re-test, so they re-park while their notice is
+         *   still registered; the process resumes at the crossing and nowhere else.
+         *
+         * Use [reactivate] when the intent is to *cancel* the pending wait and resume now.
+         *
+         * A surviving extra turn is delivered at whatever suspension point the process reaches
+         * next. That is clean when the process passivates (the shape in issue #73). If it is a
+         * [hold], the hold returns at once and its own event stays queued, so the surplus resume
+         * moves on to the following suspension point — see
+         * `ProcessTest.extraTurnGrantedDuringWaitUntilLandsOnTheNextSuspensionPoint`.
          */
         fun activate(process: Process, delay: Double = 0.0) {
             require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
@@ -440,20 +470,20 @@ abstract class Process : Link() {
         }
 
         /**
-         * Reactivates a previously passivated process at current time.
+         * Reactivates a process at the current time.
          *
          * No-op if [process] is already terminated.
          * If [process] is already in the event queue (e.g. mid-[hold]), it is
          * rescheduled at the current time (no duplicate event is created).
+         * If [process] is parked in [waitUntil], [waitCrossing] or [waitUntilCrossing], the pending
+         * notice is dropped and the process resumes now — this, not [activate], is the call that
+         * *cancels* a wait.
          */
         fun reactivate(process: Process) {
             if (process._terminated) return
             val ctx = process.context
             process._state = ProcessState.SCHEDULED
-            if (ctx.eventListeners.isNotEmpty()) {
-                val event = SimulationEvent.ProcessReactivated(ctx.currentTime, process)
-                ctx.eventListeners.forEach { it(event) }
-            }
+            ctx.emit { SimulationEvent.ProcessReactivated(ctx.currentTime, process) }
             ctx.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
             ctx.crossingNotices.removeAll { it.process === process }  // clear stale crossing notices
             ctx.eventQueue.remove(process)   // prevent duplicate if already scheduled

@@ -81,6 +81,10 @@ class Simulation internal constructor() {
      * When active [Continuous] processes are present, the [ContinuousMonitor] integrates
      * all active [Variable]s up to the time of the next discrete event before processing it.
      *
+     * Processes still suspended when this returns are cancelled and end [Process.isTerminated],
+     * whichever primitive they were parked on. That cancellation is not a simulation event: no
+     * [SimulationEvent.ProcessTerminated] is emitted for it.
+     *
      * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
@@ -238,9 +242,13 @@ class Simulation internal constructor() {
     }
 
     /**
-     * Number of processes that are running, scheduled, pending activation, or parked on a wait
-     * notice ([Process.waitUntil]) or crossing notice ([Process.waitCrossing],
-     * [Process.waitUntilCrossing]). Passivated processes are not counted.
+     * Number of outstanding wake-ups: pending activations, queued events, and registered wait
+     * ([Process.waitUntil]) and crossing ([Process.waitCrossing], [Process.waitUntilCrossing])
+     * notices, plus the process currently executing. Passivated processes are not counted.
+     *
+     * This counts wake-ups, not distinct processes: a process that is both parked on a notice and
+     * holding a turn queued by [Process.activate] contributes twice. Over-counting is the safe
+     * direction for `while (activeProcessCount() > 0)` drain loops.
      */
     fun activeProcessCount(): Int {
         return context.pendingActivations.size + context.eventQueue.size() +

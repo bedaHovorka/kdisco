@@ -351,8 +351,7 @@ class StateEventTest {
         var resumeCount = 0
         var resumeTime = Double.NaN
 
-        lateinit var waiter: Process
-        waiter = object : Process() {
+        val waiter = object : Process() {
             override suspend fun actions() {
                 x.start(); motion.start()
                 waitCrossing { 5.0 - x.state }
@@ -361,7 +360,7 @@ class StateEventTest {
                 motion.stop(); x.stop()
             }
         }
-        runSimulation(endTime = 20.0) {
+        val sim = Simulation.create {
             dtMax = 1.0
             Process.activate(waiter)
             Process.activate(object : Process() {
@@ -371,8 +370,11 @@ class StateEventTest {
                 }
             })
         }
+        sim.run(20.0)
 
         assertThat(resumeCount).isEqualTo(1)
         assertThat(abs(resumeTime - 5.0)).isLessThan(1e-6)
+        // Nothing stranded: the absorbed turn left no notice and no queued event behind.
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
     }
 }
