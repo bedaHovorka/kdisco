@@ -101,4 +101,30 @@ class EventQueueTest {
         assertThat(peeked.process).isEqualTo(p1)
         assertThat(eq.isEmpty()).isFalse()
     }
+
+    @Test
+    fun containsTracksEveryQueuedEventOfAProcess() {
+        val eq = EventQueue()
+        val p1 = TestProcess()
+        val p2 = TestProcess()
+        assertThat(eq.contains(p1)).isFalse()
+
+        eq.schedule(p1, 5.0)
+        eq.schedule(p1, 10.0)
+        eq.schedule(p2, 7.0)
+        assertThat(eq.contains(p1)).isTrue()
+        assertThat(eq.contains(p2)).isTrue()
+
+        eq.removeFirst() // p1 at t=5
+        // p1 still has its t=10 event
+        assertThat(eq.contains(p1)).isTrue()
+
+        eq.remove(p1)
+        assertThat(eq.contains(p1)).isFalse()
+        assertThat(eq.contains(p2)).isTrue()
+
+        eq.removeFirst() // p2 at t=7
+        assertThat(eq.contains(p2)).isFalse()
+        assertThat(eq.isEmpty()).isTrue()
+    }
 }

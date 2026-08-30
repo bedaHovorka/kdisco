@@ -236,6 +236,80 @@ class ProcessTest {
     }
 
     @Test
+    fun surplusEventDuringHoldDoesNotShortenTheHold() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        val holder = object : Process() {
+            override suspend fun actions() {
+                hold(5.0)
+                log.add("holdDone" to time())
+                passivate()
+                log.add("afterPassivate" to time())
+            }
+        }
+        val disturber = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                // A surplus event delivered to a mid-hold process: it must not
+                // shorten the hold.
+                Process.activate(holder)
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(holder)
+            Process.activate(disturber)
+        }
+        // The hold runs its full duration, and the surplus event is dropped rather
+        // than propagating to the following suspension point.
+        assertThat(log).containsExactly("holdDone" to 5.0)
+    }
+
+    @Test
+    fun reactivateStillCutsAHoldShort() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        val holder = object : Process() {
+            override suspend fun actions() {
+                hold(5.0)
+                log.add("holdDone" to time())
+            }
+        }
+        val reactivator = object : Process() {
+            override suspend fun actions() {
+                hold(2.0)
+                Process.reactivate(holder)
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(holder)
+            Process.activate(reactivator)
+        }
+        assertThat(log).containsExactly("holdDone" to 2.0)
+    }
+
+    @Test
+    fun surplusEventAfterTheHoldsDueTimeDoesNotDelayIt() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        val holder = object : Process() {
+            override suspend fun actions() {
+                hold(2.0)
+                log.add("holdDone" to time())
+                passivate()
+                log.add("afterPassivate" to time())
+            }
+        }
+        val disturber = object : Process() {
+            override suspend fun actions() {
+                // Queue an extra event for holder at t=6, after its hold is due at t=2.
+                Process.activate(holder, delay = 6.0)
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(holder)
+            Process.activate(disturber)
+        }
+        assertThat(log).containsExactly("holdDone" to 2.0, "afterPassivate" to 6.0)
+    }
+
+    @Test
     fun reactivateTerminatedProcessIsNoOp() = runTest {
         var actionsRunCount = 0
         val sim = Simulation.create {
