@@ -209,12 +209,11 @@ class Simulation internal constructor() {
      * @deprecated Parameter order is the reverse of [run]. Use `run(endTime, controller)` instead.
      */
     @Deprecated(
-        message = "Parameter order is reversed relative to run(endTime, controller). Use run(endTime, controller) instead.",
-        replaceWith = ReplaceWith("run(endTime, controller)")
+        message =
+        "Parameter order is reversed relative to run(endTime, controller). Use run(endTime, controller) instead.",
+        replaceWith = ReplaceWith("run(endTime, controller)"),
     )
-    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean {
-        return run(endTime, controller)
-    }
+    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
@@ -243,16 +242,12 @@ class Simulation internal constructor() {
     fun nextEventTime(): Double = context.eventQueue.peek()?.time ?: Double.MAX_VALUE
 
     /** Number of events currently waiting in the event queue. */
-    fun scheduledEventCount(): Int {
-        return context.eventQueue.size()
-    }
+    fun scheduledEventCount(): Int = context.eventQueue.size()
 
     /** Number of processes that are running, scheduled, or pending activation. Passivated processes are not counted. */
-    fun activeProcessCount(): Int {
-        return context.pendingActivations.size + context.eventQueue.size() +
-                context.crossingNotices.size +
-                (if (context.currentProcess != null) 1 else 0)
-    }
+    fun activeProcessCount(): Int = context.pendingActivations.size + context.eventQueue.size() +
+        context.crossingNotices.size +
+        (if (context.currentProcess != null) 1 else 0)
 
     /** Requests the simulation to stop after the current event. */
     fun stop() {
