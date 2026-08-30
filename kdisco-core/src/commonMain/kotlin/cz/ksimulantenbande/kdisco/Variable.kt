@@ -73,8 +73,8 @@ class Variable(initialState: Double = 0.0) : Link() {
      *
      * @deprecated renamed to [isStarted]
      */
-    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()")) // NOSONAR: deprecation is the point of this PR
-    fun isActive(): Boolean = isStarted()
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    fun isActive(): Boolean = isStarted() // NOSONAR: deprecation is the point of this PR
 
     /**
      * Returns the value of [state] at the start of the current integration step.
