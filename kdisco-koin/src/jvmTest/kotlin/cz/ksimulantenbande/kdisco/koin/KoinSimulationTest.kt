@@ -126,6 +126,32 @@ class KoinSimulationTest {
     }
 
     @Test
+    fun setupBlockCanLazilyInjectDependencies() = runTest {
+        koinSimulation(shopModule, endTime = 1.0) {
+            val stats: SimStats by inject()
+            assertThat(stats.arrivals).isEmpty()
+        }
+    }
+
+    @Test
+    fun koinSimulationAcceptsAModuleListWithController() = runTest {
+        val controller = SimulationController()
+        var stats: SimStats? = null
+
+        koinSimulation(listOf(shopModule), endTime = 20.0, controller = controller) {
+            stats = get()
+            val server: Server = get { parametersOf(1.0) }
+            val queue: ServiceQueue = get()
+            queue.server = server
+            Process.activate(server)
+            Process.activate(get<Customer> { parametersOf(0) })
+        }
+
+        assertThat(stats!!.arrivals.size).isEqualTo(1)
+        assertThat(stats.departures.size).isEqualTo(1)
+    }
+
+    @Test
     fun eachSimulationGetsIsolatedKoinContext() = runTest {
         val statsPerRun = mutableListOf<SimStats>()
 
