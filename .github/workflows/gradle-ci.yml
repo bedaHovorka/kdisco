@@ -2,7 +2,11 @@ name: Gradle CI
 
 on:
   push:
-    branches: [main, develop, 'toVer0.6.0', 'feature/**', 'feat/**', 'fix/**', 'copilot/**']
+    # Deliberately narrow. Every other branch pattern reaches CI through the
+    # `pull_request` trigger, so listing it here too would run the whole workflow
+    # twice for one push. `feat/**` is the exception: `publish-snapshot` needs a
+    # push-triggered `build` to publish the snapshot consumers depend on.
+    branches: [main, 'feat/**']
   pull_request:
     branches: [main, develop, 'toVer0.6.0', 'feat/**']
   workflow_dispatch:
@@ -65,8 +69,15 @@ jobs:
     name: SonarCloud
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Forks do not get the SONAR_TOKEN secret; skip rather than fail the run.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Analyse a pull request from this repository (forks do not get the SONAR_TOKEN
+    # secret, so skip rather than fail), or trunk. A push to `feat/**` is here only to
+    # publish a snapshot; the free plan discards non-trunk branch analyses anyway, and
+    # the branch's pull request already covers it.
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      || github.event_name == 'workflow_dispatch'
+      || github.event_name == 'schedule'
     permissions:
       contents: read
     steps:
@@ -89,7 +100,27 @@ jobs:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
+
+          # These values end up in a shell word. Git permits backtick, dollar,
+          # parenthesis and semicolon in a ref name, so validate fail-closed.
+          check_ref() {
+            case "$2" in
+              *[!A-Za-z0-9._/+,-]* | "")
+                echo "::error::Refusing to build a Sonar scope from an unexpected $1."
+                exit 1
+                ;;
+            esac
+          }
+
           if [ "$EVENT_NAME" = "pull_request" ]; then
+            case "$PR_NUMBER" in
+              '' | *[!0-9]*)
+                echo "::error::Pull request number is not numeric."
+                exit 1
+                ;;
+            esac
+            check_ref "pull request head ref" "$PR_HEAD_REF"
+            check_ref "pull request base ref" "$PR_BASE_REF"
             # Scope the run to the pull request. Without this it silently overwrites
             # the trunk analysis. `qualitygate.wait` makes a red gate fail the job.
             ARGS="-Dsonar.pullrequest.key=${PR_NUMBER}"
@@ -97,6 +128,7 @@ jobs:
             ARGS="$ARGS -Dsonar.pullrequest.base=${PR_BASE_REF}"
             ARGS="$ARGS -Dsonar.qualitygate.wait=true"
           elif [ -n "${GITHUB_REF_NAME:-}" ]; then
+            check_ref "branch name" "$GITHUB_REF_NAME"
             ARGS="-Dsonar.branch.name=${GITHUB_REF_NAME}"
           else
             echo "::error::Could not determine a Sonar analysis scope (neither a pull request nor a branch name)."
@@ -104,8 +136,11 @@ jobs:
           fi
           echo "args=$ARGS" >> "$GITHUB_OUTPUT"
       - name: Coverage report and Sonar analysis
-        run: ./gradlew koverXmlReport sonar ${{ steps.scope.outputs.args }}
+        # `$SONAR_ARGS` is read from the environment, never interpolated into the
+        # script body: `${{ }}` there would splice ref-derived text into the shell.
+        run: ./gradlew koverXmlReport sonar $SONAR_ARGS
         env:
+          SONAR_ARGS: ${{ steps.scope.outputs.args }}
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

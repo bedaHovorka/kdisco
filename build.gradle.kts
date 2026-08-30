@@ -128,6 +128,14 @@ sonar {
         )
         // Benchmarks are excluded from analysis as well as from coverage.
         property("sonar.exclusions", "**/TickSchedulingBenchmark.kt,**/ScaleBenchmark.kt")
+        // The JVM-only Kover report can never cover the non-JVM platform `actual`s, so
+        // counting them would report them as uncovered and drag the new-code coverage
+        // gate down on any change that merely touches them. They stay indexed for bugs,
+        // smells and duplication — only the coverage metric skips them.
+        property(
+            "sonar.coverage.exclusions",
+            "**/src/nonJvmMain/**,**/src/jsMain/**,**/src/nativeMain/**",
+        )
         // The root project holds no sources; every path is declared per module (see
         // each module's build.gradle.kts) so that no file is indexed twice.
         property("sonar.sources", "")

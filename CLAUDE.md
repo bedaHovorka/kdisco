@@ -112,7 +112,16 @@ Notes and constraints:
   `sonar.coverage.jacoco.xmlReportPaths`.
 - **Only the JVM target is covered.** `commonMain` is compiled into the JVM target and
   `commonTest` runs there, so this covers essentially the whole engine; the platform
-  `actual`s in `jvmMain` / `jsMain` / `nativeMain` are the known blind spot.
+  `actual`s in `jvmMain` / `jsMain` / `nativeMain` are the known blind spot. `jvmMain` is
+  measured; the source sets the JVM target never compiles — `nonJvmMain`, `jsMain`,
+  `nativeMain` — are in `sonar.coverage.exclusions`, because reporting them as 0 %
+  covered would fail the new-code coverage gate on any change that merely touches them.
+  They are still analysed for bugs, smells and duplication.
+- **The gate really does enforce coverage.** The default *Sonar way* gate conditions are
+  `new_coverage ≥ 80 %`, `new_duplicated_lines_density ≤ 3 %`,
+  `new_security_hotspots_reviewed = 100 %` and A ratings for reliability, security and
+  maintainability — all on **new code only**. `new_coverage` is skipped when a change has
+  no coverable new lines, which is why a config-only PR can pass showing 0 %.
 - **Benchmarks are excluded** from coverage and from Sonar analysis
   (`TickSchedulingBenchmark`, `ScaleBenchmark`) so they neither inflate coverage nor
   count as debt.
@@ -131,7 +140,16 @@ Notes and constraints:
 - **Every analysis must be scoped.** CI passes `sonar.pullrequest.*` when a PR is open and
   `sonar.branch.name` otherwise, and hard-fails when neither can be determined — an
   unscoped run silently overwrites the trunk analysis. PR runs also pass
-  `-Dsonar.qualitygate.wait=true`, so a red quality gate fails the job for real.
+  `-Dsonar.qualitygate.wait=true`, so a red quality gate fails the job for real. Ref names
+  reaching that scope are validated against `^[A-Za-z0-9._/+,-]+$` and the resulting
+  argument string is handed to the build through `$SONAR_ARGS` rather than a `${{ }}`
+  splice, because git permits shell metacharacters in a branch name.
+- **One CI run per pull request.** The `push` trigger lists only `main` and `feat/**`
+  (the latter because `publish-snapshot` needs a push-triggered build); every other branch
+  reaches CI through `pull_request`. Listing a branch in both makes GitHub run the whole
+  workflow twice for one push. The Sonar job narrows this further and runs only for a
+  pull request from this repository or a push to `main` — the free plan accepts
+  feature-branch analyses but retains nothing from them.
 - **Encoding.** `sonar.sourceEncoding` and `JavaCompile.options.encoding` are pinned to
   UTF-8; the KDoc in this codebase is full of en-dashes and arrows, and a stale platform
   default renders them as mojibake in the analysis.
