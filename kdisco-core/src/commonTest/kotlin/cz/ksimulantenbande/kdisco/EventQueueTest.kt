@@ -101,4 +101,30 @@ class EventQueueTest {
         assertThat(peeked.process).isEqualTo(p1)
         assertThat(eq.isEmpty()).isFalse()
     }
+
+    @Test
+    fun queuedEventsTracksEveryQueuedEventOfAProcess() {
+        val eq = EventQueue()
+        val p1 = TestProcess()
+        val p2 = TestProcess()
+        assertThat(p1.queuedEvents).isEqualTo(0)
+
+        eq.schedule(p1, 5.0)
+        eq.schedule(p1, 10.0)
+        eq.schedule(p2, 7.0)
+        assertThat(p1.queuedEvents).isEqualTo(2)
+        assertThat(p2.queuedEvents).isEqualTo(1)
+
+        eq.removeFirst() // p1 at t=5
+        // p1 still has its t=10 event
+        assertThat(p1.queuedEvents).isEqualTo(1)
+
+        eq.remove(p1)
+        assertThat(p1.queuedEvents).isEqualTo(0)
+        assertThat(p2.queuedEvents).isEqualTo(1)
+
+        eq.removeFirst() // p2 at t=7
+        assertThat(p2.queuedEvents).isEqualTo(0)
+        assertThat(eq.isEmpty()).isTrue()
+    }
 }

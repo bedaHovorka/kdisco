@@ -243,6 +243,63 @@ class ProcessTest {
     }
 
     @Test
+    fun reactivateStillCutsAHoldShort() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        val holder = object : Process() {
+            override suspend fun actions() {
+                hold(5.0)
+                log.add("holdDone" to time())
+            }
+        }
+        val reactivator = object : Process() {
+            override suspend fun actions() {
+                hold(2.0)
+                Process.reactivate(holder)
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(holder)
+            Process.activate(reactivator)
+        }
+        assertThat(log).containsExactly("holdDone" to 2.0)
+    }
+
+    /**
+     * A surplus turn due *after* the hold's own event is not spurious: the hold ends on time and the
+     * extra turn lands on the next suspension point.
+     *
+     * Since `activate` refuses a process that already owns a turn, the surplus has to be granted
+     * while the holder is parked in [Process.waitUntil] — the channel Issue #73 opened.
+     */
+    @Test
+    fun surplusEventAfterTheHoldsDueTimeDoesNotDelayIt() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        var running = false
+        val holder = object : Process() {
+            override suspend fun actions() {
+                running = true
+                waitUntil { !running } // released by its notice at t=1
+                hold(2.0) // due at t=3, before the surplus turn at t=6
+                log.add("holdDone" to time())
+                passivate()
+                log.add("afterPassivate" to time())
+            }
+        }
+        val disturber = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                Process.activate(holder, delay = 5.0) // independent turn, queued for t=6
+                running = false
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(holder)
+            Process.activate(disturber)
+        }
+        assertThat(log).containsExactly("holdDone" to 3.0, "afterPassivate" to 6.0)
+    }
+
+    @Test
     fun reactivateTerminatedProcessIsNoOp() = runTest {
         var actionsRunCount = 0
         val sim = Simulation.create {
@@ -1093,15 +1150,13 @@ class ProcessTest {
     /**
      * Where a surviving extra turn lands. `activate` on a wait-parked process queues a turn that is
      * delivered at whatever suspension point the process reaches next. When that is `passivate` —
-     * the shape in Issue #73 — it is consumed cleanly. When it is a `hold`, the hold returns at once
-     * and its own event stays queued, so the surplus resume moves on to the following suspension
-     * point.
-     *
-     * This pins the current semantics rather than endorsing them; `hold` does not yet have the
-     * spurious-resume discipline `waitUntil` and the crossing waits now have.
+     * the shape in Issue #73 — it is consumed cleanly. When it is a `hold` (Issue #77), the turn is
+     * a spurious resume: the hold's own event is still queued and its due time not reached, so the
+     * scheduler drops the surplus instead of letting it cut the hold short and propagate to the
+     * following suspension point.
      */
     @Test
-    fun extraTurnGrantedDuringWaitUntilLandsOnTheNextSuspensionPoint() = runTest {
+    fun extraTurnGrantedDuringWaitUntilDoesNotShortenTheFollowingHold() = runTest {
         val log = mutableListOf<Pair<String, Double>>()
         var running = false
         val worker = object : Process() {
@@ -1125,10 +1180,10 @@ class ProcessTest {
                 }
             })
         }
-        // hold(5.0) is cut short by the surplus resume at t=1; the event it queued still fires at
-        // t=6 and is absorbed by passivate().
+        // The surplus resume at t=1 is dropped, so hold(5.0) runs its full duration and its own
+        // event ends it at t=6. Nothing is left over for passivate() to absorb.
         assertThat(log).isEqualTo(
-            listOf("waitDone" to 1.0, "holdDone" to 1.0, "afterPassivate" to 6.0),
+            listOf("waitDone" to 1.0, "holdDone" to 6.0),
         )
     }
 
