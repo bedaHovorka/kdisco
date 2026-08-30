@@ -73,7 +73,7 @@ class Variable(initialState: Double = 0.0) : Link() {
      *
      * @deprecated renamed to [isStarted]
      */
-    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()")) // NOSONAR: deprecation is the point of this PR
     fun isActive(): Boolean = isStarted()
 
     /**
