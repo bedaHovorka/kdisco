@@ -70,8 +70,8 @@ abstract class Continuous : Process() {
      *
      * @deprecated renamed to [isStarted]
      */
-    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()")) // NOSONAR: deprecation is the point of this PR
-    override fun isActive(): Boolean = isStarted()
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    override fun isActive(): Boolean = isStarted() // NOSONAR: deprecation is the point of this PR
 
     /**
      * Returns the current priority of this continuous process.
