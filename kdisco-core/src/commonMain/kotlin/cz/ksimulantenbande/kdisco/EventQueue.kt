@@ -51,7 +51,8 @@ internal class EventQueue {
     fun size(): Int = events.size
 
     /** Returns an ordered snapshot of all pending events without mutating the queue. */
-    fun snapshot(): List<PendingEvent> = events.map { PendingEvent(it.process, it.time, it.priority, it.insertionOrder) }
+    fun snapshot(): List<PendingEvent> =
+        events.map { PendingEvent(it.process, it.time, it.priority, it.insertionOrder) }
 
     private fun findInsertionPoint(time: Double, order: Long): Int {
         var low = 0
@@ -72,9 +73,4 @@ internal class EventQueue {
 /**
  * A scheduled event in the event queue.
  */
-internal class ScheduledEvent(
-    val process: Process,
-    val time: Double,
-    val insertionOrder: Long,
-    val priority: Boolean
-)
+internal class ScheduledEvent(val process: Process, val time: Double, val insertionOrder: Long, val priority: Boolean)

@@ -15,9 +15,4 @@ package cz.ksimulantenbande.kdisco
  *   within the same simulation time. Non-negative for normal (FIFO) events; negative for
  *   priority (LIFO) events.
  */
-data class PendingEvent(
-    val process: Process,
-    val time: Double,
-    val priority: Boolean,
-    val insertionOrder: Long
-)
+data class PendingEvent(val process: Process, val time: Double, val priority: Boolean, val insertionOrder: Long)
