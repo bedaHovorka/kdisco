@@ -182,4 +182,41 @@ class SimulationControlTest {
         val result = sim.run(3.0)
         assertThat(result).isFalse()
     }
+
+    @Test
+    fun runControlledDelegatesToRunWithController() = runTest {
+        val controller = SimulationController()
+        val log = mutableListOf<Double>()
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    log.add(time())
+                }
+            })
+        }
+        val result = sim.runControlled(controller, 10.0)
+        assertThat(result).isTrue()
+        assertThat(log).isEqualTo(listOf(0.0))
+    }
+
+    @Test
+    fun scheduledEventCountReflectsQueuedEvents() = runTest {
+        lateinit var sim: Simulation
+        var countDuringRun = -1
+        sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    countDuringRun = sim.scheduledEventCount()
+                }
+            })
+        }
+        sim.run(10.0)
+        assertThat(countDuringRun).isEqualTo(1)
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+    }
 }
