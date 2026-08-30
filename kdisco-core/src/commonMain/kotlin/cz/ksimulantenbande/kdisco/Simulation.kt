@@ -148,10 +148,18 @@ class Simulation internal constructor() {
 
                 val cont = process.continuation
                 if (cont != null) {
-                    // Resume existing coroutine (returning from hold/passivate)
-                    process.continuation = null
-                    process._state = ProcessState.RUNNING
-                    cont.resumeWith(Result.success(Unit))
+                    // Drop a spurious resume: an event queued for some other reason (e.g. a
+                    // surviving turn from Process.activate) delivered while the process is
+                    // mid-hold and its own hold event is still queued. Process.reactivate
+                    // removes that event first, so it still cuts a hold short.
+                    val spurious = process.queuedEventCount > 0 && context.currentTime < process.holdDue
+                    if (!spurious) {
+                        // Resume existing coroutine (returning from hold/passivate)
+                        process.continuation = null
+                        process.holdDue = Double.NEGATIVE_INFINITY
+                        process._state = ProcessState.RUNNING
+                        cont.resumeWith(Result.success(Unit))
+                    }
                 } else {
                     // First activation — launch new coroutine for process.actions().
                     // Guard against re-launching if the process was terminated and then

@@ -57,6 +57,25 @@ abstract class Process : Link() {
     internal var _state: ProcessState = ProcessState.IDLE
 
     /**
+     * Number of events this process currently has in the [EventQueue].
+     *
+     * Maintained solely by [EventQueue]; it exists so that "does this process still have
+     * a queued event?" is an O(1) test on the scheduler's hot path.
+     */
+    internal var queuedEventCount: Int = 0
+
+    /**
+     * Simulation time at which this process's current [hold] is due to end, or
+     * [Double.NEGATIVE_INFINITY] when it is not holding.
+     *
+     * The scheduler uses it, together with [queuedEventCount], to recognise an event
+     * delivered to a mid-[hold] process for some other reason (a *spurious* resume) and
+     * drop it instead of cutting the hold short. Cleared by the scheduler on every
+     * genuine resume, so it is never stale.
+     */
+    internal var holdDue: Double = Double.NEGATIVE_INFINITY
+
+    /**
      * Defines the behavior of this process. Called by the scheduler.
      *
      * **Only use kDisco suspension points** ([hold], [passivate], [waitUntil], [terminate])
@@ -69,13 +88,21 @@ abstract class Process : Link() {
 
     /**
      * Suspends this process for the specified simulation time duration.
+     *
+     * A *spurious* resume — an event delivered to this process for some other reason,
+     * e.g. a surviving turn from [Process.activate] — does not shorten the hold. The
+     * scheduler drops such an event while the clock has not reached the hold's due time
+     * and this process's own hold event is still queued. [Process.reactivate] removes
+     * that event before rescheduling, so it still cuts a hold short as documented.
      */
     suspend fun hold(duration: Double) {
         require(duration >= 0.0) { "Duration must be non-negative, got $duration" }
         suspendCancellableCoroutine<Unit> { cont ->
             _state = ProcessState.SCHEDULED
             continuation = cont
-            context.eventQueue.schedule(this, context.currentTime + duration)
+            val due = context.currentTime + duration
+            holdDue = due
+            context.eventQueue.schedule(this, due)
             if (context.eventListeners.isNotEmpty()) {
                 val event = SimulationEvent.ProcessHeld(context.currentTime, this, duration)
                 context.eventListeners.forEach { it(event) }

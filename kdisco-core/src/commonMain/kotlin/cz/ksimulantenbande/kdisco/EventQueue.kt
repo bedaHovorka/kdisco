@@ -32,16 +32,27 @@ internal class EventQueue {
         val event = ScheduledEvent(process, time, order)
         val index = findInsertionPoint(time, order)
         events.add(index, event)
+        process.queuedEventCount++
     }
 
     fun remove(process: Process) {
+        val before = events.size
         events.removeAll { it.process === process }
+        process.queuedEventCount -= before - events.size
     }
 
-    fun contains(process: Process): Boolean = events.any { it.process === process }
+    /**
+     * True if [process] has at least one event in this queue. O(1): backed by the
+     * per-process counter maintained by [schedule], [remove] and [removeFirst], so it
+     * can be called on the scheduler's hot path (see [Process.hold]) without scanning.
+     */
+    fun contains(process: Process): Boolean = process.queuedEventCount > 0
 
     fun removeFirst(): ScheduledEvent? {
-        return if (events.isEmpty()) null else events.removeAt(0)
+        if (events.isEmpty()) return null
+        val event = events.removeAt(0)
+        event.process.queuedEventCount--
+        return event
     }
 
     fun isEmpty(): Boolean = events.isEmpty()
