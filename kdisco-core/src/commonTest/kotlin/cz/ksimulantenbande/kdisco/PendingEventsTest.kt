@@ -27,9 +27,13 @@ class PendingEventsTest {
     @Test
     fun pendingEventsReturnsEmptyAfterQueueDrained() = runTest {
         val sim = Simulation.create {
-            Process.activate(object : Process() {
-                override suspend fun actions() {}
-            })
+            Process.activate(
+                object : Process() {
+                    override suspend fun actions() {
+                        Unit
+                    }
+                },
+            )
         }
         sim.run(10.0)
         assertThat(sim.pendingEvents()).isEmpty()
@@ -42,18 +46,38 @@ class PendingEventsTest {
         val deliveredOrder = mutableListOf<String>()
 
         val sim = Simulation.create {
-            Process.activate(object : NamedProcess("early") {
-                override suspend fun actions() { deliveredOrder.add(name) }
-            }, delay = 3.0)
-            Process.activate(object : NamedProcess("normal1") {
-                override suspend fun actions() { deliveredOrder.add(name) }
-            }, delay = 5.0)
-            Process.activate(object : NamedProcess("normal2") {
-                override suspend fun actions() { deliveredOrder.add(name) }
-            }, delay = 5.0)
-            Process.activate(object : NamedProcess("late") {
-                override suspend fun actions() { deliveredOrder.add(name) }
-            }, delay = 10.0)
+            Process.activate(
+                object : NamedProcess("early") {
+                    override suspend fun actions() {
+                        deliveredOrder.add(name)
+                    }
+                },
+                delay = 3.0,
+            )
+            Process.activate(
+                object : NamedProcess("normal1") {
+                    override suspend fun actions() {
+                        deliveredOrder.add(name)
+                    }
+                },
+                delay = 5.0,
+            )
+            Process.activate(
+                object : NamedProcess("normal2") {
+                    override suspend fun actions() {
+                        deliveredOrder.add(name)
+                    }
+                },
+                delay = 5.0,
+            )
+            Process.activate(
+                object : NamedProcess("late") {
+                    override suspend fun actions() {
+                        deliveredOrder.add(name)
+                    }
+                },
+                delay = 10.0,
+            )
         }
 
         val snapshot = captureFirstSnapshot(sim, 20.0)
@@ -74,9 +98,14 @@ class PendingEventsTest {
     fun pendingEventsSnapshotDoesNotMutateQueue() = runTest {
         val sim = Simulation.create {
             repeat(3) { i ->
-                Process.activate(object : Process() {
-                    override suspend fun actions() {}
-                }, delay = (i + 1).toDouble())
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            Unit
+                        }
+                    },
+                    delay = (i + 1).toDouble(),
+                )
             }
         }
 
@@ -84,10 +113,10 @@ class PendingEventsTest {
         var countAfter = -1
         sim.run(10.0) {
             countBefore = sim.scheduledEventCount()
-            sim.pendingEvents()   // must not mutate the queue
-            sim.pendingEvents()   // repeated calls must also be safe
+            sim.pendingEvents() // must not mutate the queue
+            sim.pendingEvents() // repeated calls must also be safe
             countAfter = sim.scheduledEventCount()
-            sim.stop()            // stop after first iteration
+            sim.stop() // stop after first iteration
         }
 
         assertThat(countAfter).isEqualTo(countBefore)
@@ -100,9 +129,14 @@ class PendingEventsTest {
         val snapshotSizes = mutableListOf<Int>()
         val sim = Simulation.create {
             repeat(3) { i ->
-                Process.activate(object : Process() {
-                    override suspend fun actions() {}
-                }, delay = (i + 1).toDouble())
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            Unit
+                        }
+                    },
+                    delay = (i + 1).toDouble(),
+                )
             }
         }
         sim.run(10.0) {
@@ -114,7 +148,9 @@ class PendingEventsTest {
     @Test
     fun pendingEventsEachEntryHasCorrectFields() = runTest {
         val p = object : NamedProcess("target") {
-            override suspend fun actions() {}
+            override suspend fun actions() {
+                Unit
+            }
         }
         val sim = Simulation.create {
             Process.activate(p, delay = 7.0)
