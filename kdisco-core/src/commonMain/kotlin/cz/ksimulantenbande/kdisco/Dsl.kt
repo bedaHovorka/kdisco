@@ -49,7 +49,5 @@ suspend fun runSimulation(
  */
 fun emitCustom(payload: Any?) {
     val ctx = Process.activeContext ?: return
-    if (ctx.eventListeners.isEmpty()) return
-    val event = SimulationEvent.Custom(ctx.currentTime, payload)
-    ctx.eventListeners.forEach { it(event) }
+    ctx.emit { SimulationEvent.Custom(ctx.currentTime, payload) }
 }

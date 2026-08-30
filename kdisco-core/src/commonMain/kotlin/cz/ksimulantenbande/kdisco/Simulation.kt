@@ -81,6 +81,10 @@ class Simulation internal constructor() {
      * When active [Continuous] processes are present, the [ContinuousMonitor] integrates
      * all active [Variable]s up to the time of the next discrete event before processing it.
      *
+     * Processes still suspended when this returns are cancelled and end [Process.isTerminated],
+     * whichever primitive they were parked on. That cancellation is not a simulation event: no
+     * [SimulationEvent.ProcessTerminated] is emitted for it.
+     *
      * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
@@ -159,7 +163,7 @@ class Simulation internal constructor() {
                     // this guard being in place).
                     if (!process._terminated) {
                         process._state = ProcessState.RUNNING
-                        emit(SimulationEvent.ProcessActivated(context.currentTime, process))
+                        context.emit { SimulationEvent.ProcessActivated(context.currentTime, process) }
                         simScope.launch {
                             try {
                                 process.actions()
@@ -169,7 +173,7 @@ class Simulation internal constructor() {
                                 if (!process._terminated) {
                                     process._state = ProcessState.TERMINATED
                                     process._terminated = true
-                                    emit(SimulationEvent.ProcessTerminated(context.currentTime, process))
+                                    context.emit { SimulationEvent.ProcessTerminated(context.currentTime, process) }
                                 }
                             }
                         }
@@ -199,18 +203,15 @@ class Simulation internal constructor() {
      * The controller's [SimulationController.beforeEvent] hook is invoked once per
      * event-loop iteration before the next event is processed.
      */
-    suspend fun run(endTime: Double, controller: SimulationController): Boolean {
-        return run(endTime) { controller.beforeEvent(this) }
-    }
+    suspend fun run(endTime: Double, controller: SimulationController): Boolean =
+        run(endTime) { controller.beforeEvent(this) }
 
     /**
      * Runs the simulation under an external [SimulationController].
      *
      * This is a convenience overload equivalent to [run] with a controller argument.
      */
-    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean {
-        return run(endTime, controller)
-    }
+    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
@@ -225,12 +226,6 @@ class Simulation internal constructor() {
         context.eventListeners += listener
     }
 
-    /** Emit a [SimulationEvent] to all registered listeners, in registration order. */
-    internal fun emit(event: SimulationEvent) {
-        if (context.eventListeners.isEmpty()) return
-        context.eventListeners.forEach { it(event) }
-    }
-
     /**
      * Returns the scheduled time of the next pending event, or [Double.MAX_VALUE] if no
      * events are queued. May be called from the [run] [beforeEvent] hook to implement
@@ -239,16 +234,20 @@ class Simulation internal constructor() {
     fun nextEventTime(): Double = context.eventQueue.peek()?.time ?: Double.MAX_VALUE
 
     /** Number of events currently waiting in the event queue. */
-    fun scheduledEventCount(): Int {
-        return context.eventQueue.size()
-    }
+    fun scheduledEventCount(): Int = context.eventQueue.size()
 
-    /** Number of processes that are running, scheduled, or pending activation. Passivated processes are not counted. */
-    fun activeProcessCount(): Int {
-        return context.pendingActivations.size + context.eventQueue.size() +
-                context.crossingNotices.size +
-                (if (context.currentProcess != null) 1 else 0)
-    }
+    /**
+     * Number of outstanding wake-ups: pending activations, queued events, and registered wait
+     * ([Process.waitUntil]) and crossing ([Process.waitCrossing], [Process.waitUntilCrossing])
+     * notices, plus the process currently executing. Passivated processes are not counted.
+     *
+     * This counts wake-ups, not distinct processes: a process that is both parked on a notice and
+     * holding a turn queued by [Process.activate] contributes twice. Over-counting is the safe
+     * direction for `while (activeProcessCount() > 0)` drain loops.
+     */
+    fun activeProcessCount(): Int = context.pendingActivations.size + context.eventQueue.size() +
+        context.waitNotices.size + context.crossingNotices.size +
+        (if (context.currentProcess != null) 1 else 0)
 
     /** Requests the simulation to stop after the current event. */
     fun stop() {

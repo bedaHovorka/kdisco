@@ -335,4 +335,51 @@ class StateEventTest {
 
         assertThat(abs(bResumedTime - 5.0)).isLessThan(1e-4)
     }
+
+    /**
+     * Regression guard for the crossing channel of Issue #73: an independent `activate` on a
+     * process parked in `waitCrossing` must neither end the wait early nor strand its notice.
+     * `waitCrossing` is edge-triggered and has no condition to re-test, so an extra wake-up used to
+     * return from it at the wrong time and leave a live notice behind to resume the process again
+     * later, from a completely different suspension point.
+     */
+    @Test
+    fun activateWhileWaitingOnCrossingDoesNotEndTheWaitEarly() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 1.0
+            }
+        }
+        var resumeCount = 0
+        var resumeTime = Double.NaN
+
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                x.start()
+                motion.start()
+                waitCrossing { 5.0 - x.state }
+                resumeCount++
+                resumeTime = time()
+                motion.stop()
+                x.stop()
+            }
+        }
+        val sim = Simulation.create {
+            dtMax = 1.0
+            Process.activate(waiter)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    Process.activate(waiter) // parked in waitCrossing — must be absorbed
+                }
+            })
+        }
+        sim.run(20.0)
+
+        assertThat(resumeCount).isEqualTo(1)
+        assertThat(abs(resumeTime - 5.0)).isLessThan(1e-6)
+        // Nothing stranded: the absorbed turn left no notice and no queued event behind.
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
+    }
 }
