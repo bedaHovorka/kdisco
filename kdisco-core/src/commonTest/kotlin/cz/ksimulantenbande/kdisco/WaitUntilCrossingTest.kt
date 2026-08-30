@@ -1011,6 +1011,7 @@ class WaitUntilCrossingTest {
         }
         assertThat(resumeTime).isEqualTo(0.0)
     }
+
     /**
      * Regression guard for the crossing channel of Issue #73: an independent `activate` on a
      * process parked in `waitUntilCrossing` must neither end the wait early nor strand its level
@@ -1021,18 +1022,22 @@ class WaitUntilCrossingTest {
     fun activateWhileWaitingOnLevelCrossingDoesNotEndTheWaitEarly() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var resumeCount = 0
         var resumeTime = Double.NaN
 
         val waiter = object : Process() {
             override suspend fun actions() {
-                x.start(); motion.start()
+                x.start()
+                motion.start()
                 waitUntilCrossing { 5.0 - x.state }
                 resumeCount++
                 resumeTime = time()
-                motion.stop(); x.stop()
+                motion.stop()
+                x.stop()
             }
         }
         val sim = Simulation.create {
@@ -1041,7 +1046,7 @@ class WaitUntilCrossingTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(1.0)
-                    Process.activate(waiter)   // parked in waitUntilCrossing — must be absorbed
+                    Process.activate(waiter) // parked in waitUntilCrossing — must be absorbed
                 }
             })
         }

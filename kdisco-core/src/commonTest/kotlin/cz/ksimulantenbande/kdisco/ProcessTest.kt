@@ -492,7 +492,7 @@ class ProcessTest {
         }
         runSimulation(endTime = 10.0) {
             Process.activate(p)
-            Process.activate(p)  // duplicate — must be a no-op
+            Process.activate(p) // duplicate — must be a no-op
         }
         assertThat(executions).isEqualTo(1)
     }
@@ -535,7 +535,7 @@ class ProcessTest {
         val meddler = object : Process() {
             override suspend fun actions() {
                 hold(2.0)
-                Process.activate(worker, delay = 1.0)  // worker already scheduled — no-op
+                Process.activate(worker, delay = 1.0) // worker already scheduled — no-op
             }
         }
         runSimulation(endTime = 100.0) {
@@ -551,7 +551,7 @@ class ProcessTest {
         val p = object : Process() {
             override suspend fun actions() {
                 executions++
-                Process.activate(this)  // self-activation while running — no-op
+                Process.activate(this) // self-activation while running — no-op
                 hold(1.0)
             }
         }
@@ -561,6 +561,7 @@ class ProcessTest {
         assertThat(executions).isEqualTo(1)
         assertThat(p.isTerminated()).isTrue()
     }
+
     /**
      * Regression guard for Issue #73: an `activate` on a process parked in `waitUntil` must not be
      * swallowed by that wait.
@@ -588,8 +589,8 @@ class ProcessTest {
         val driver = object : Process() {
             override suspend fun actions() {
                 hold(1.0)
-                running = false             // the wait's condition becomes true
-                Process.activate(motor)     // intent: give the motor its next turn
+                running = false // the wait's condition becomes true
+                Process.activate(motor) // intent: give the motor its next turn
                 hold(30.0)
             }
         }
@@ -599,6 +600,7 @@ class ProcessTest {
         }
         assertThat(iterations).isEqualTo(2)
     }
+
     /**
      * The control case from Issue #73: when the wait's condition is *not* satisfied, the turn
      * granted by `activate` is absorbed by `waitUntil`'s own re-test loop and the process re-parks.
@@ -629,7 +631,7 @@ class ProcessTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(1.0)
-                    Process.activate(motor)   // condition still false — absorbed by the wait
+                    Process.activate(motor) // condition still false — absorbed by the wait
                     hold(1.0)
                     countAfterActivate = sim.activeProcessCount()
                 }
@@ -696,7 +698,7 @@ class ProcessTest {
             Process.activate(p)
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    hold(1.0)                  // p ran to completion at t=0
+                    hold(1.0) // p ran to completion at t=0
                     Process.activate(p)
                     terminatedAfterActivate = p.isTerminated()
                     queuedAfterActivate = Process.scheduledEventCount()
@@ -770,14 +772,14 @@ class ProcessTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(1.0)
-                    waiter.terminate()   // throws out of this process too — must be the last call
+                    waiter.terminate() // throws out of this process too — must be the last call
                 }
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(2.0)
                     evaluationsJustAfterTerminate = conditionEvaluations
-                    hold(10.0)           // two further events for a leaked notice to be polled by
+                    hold(10.0) // two further events for a leaked notice to be polled by
                 }
             })
         }
@@ -852,7 +854,7 @@ class ProcessTest {
         // hold(5.0) is cut short by the surplus resume at t=1; the event it queued still fires at
         // t=6 and is absorbed by passivate().
         assertThat(log).isEqualTo(
-            listOf("waitDone" to 1.0, "holdDone" to 1.0, "afterPassivate" to 6.0)
+            listOf("waitDone" to 1.0, "holdDone" to 1.0, "afterPassivate" to 6.0),
         )
     }
 }

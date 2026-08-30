@@ -203,18 +203,15 @@ class Simulation internal constructor() {
      * The controller's [SimulationController.beforeEvent] hook is invoked once per
      * event-loop iteration before the next event is processed.
      */
-    suspend fun run(endTime: Double, controller: SimulationController): Boolean {
-        return run(endTime) { controller.beforeEvent(this) }
-    }
+    suspend fun run(endTime: Double, controller: SimulationController): Boolean =
+        run(endTime) { controller.beforeEvent(this) }
 
     /**
      * Runs the simulation under an external [SimulationController].
      *
      * This is a convenience overload equivalent to [run] with a controller argument.
      */
-    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean {
-        return run(endTime, controller)
-    }
+    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
@@ -237,9 +234,7 @@ class Simulation internal constructor() {
     fun nextEventTime(): Double = context.eventQueue.peek()?.time ?: Double.MAX_VALUE
 
     /** Number of events currently waiting in the event queue. */
-    fun scheduledEventCount(): Int {
-        return context.eventQueue.size()
-    }
+    fun scheduledEventCount(): Int = context.eventQueue.size()
 
     /**
      * Number of outstanding wake-ups: pending activations, queued events, and registered wait
@@ -250,11 +245,9 @@ class Simulation internal constructor() {
      * holding a turn queued by [Process.activate] contributes twice. Over-counting is the safe
      * direction for `while (activeProcessCount() > 0)` drain loops.
      */
-    fun activeProcessCount(): Int {
-        return context.pendingActivations.size + context.eventQueue.size() +
-                context.waitNotices.size + context.crossingNotices.size +
-                (if (context.currentProcess != null) 1 else 0)
-    }
+    fun activeProcessCount(): Int = context.pendingActivations.size + context.eventQueue.size() +
+        context.waitNotices.size + context.crossingNotices.size +
+        (if (context.currentProcess != null) 1 else 0)
 
     /** Requests the simulation to stop after the current event. */
     fun stop() {

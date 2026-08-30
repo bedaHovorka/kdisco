@@ -38,9 +38,7 @@ internal class EventQueue {
         events.removeAll { it.process === process }
     }
 
-    fun removeFirst(): ScheduledEvent? {
-        return if (events.isEmpty()) null else events.removeAt(0)
-    }
+    fun removeFirst(): ScheduledEvent? = if (events.isEmpty()) null else events.removeAt(0)
 
     fun isEmpty(): Boolean = events.isEmpty()
 
@@ -67,8 +65,4 @@ internal class EventQueue {
 /**
  * A scheduled event in the event queue.
  */
-internal class ScheduledEvent(
-    val process: Process,
-    val time: Double,
-    val insertionOrder: Long
-)
+internal class ScheduledEvent(val process: Process, val time: Double, val insertionOrder: Long)

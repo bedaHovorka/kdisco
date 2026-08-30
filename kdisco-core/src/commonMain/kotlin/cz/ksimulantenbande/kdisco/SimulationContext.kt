@@ -154,10 +154,7 @@ internal class SimulationContext {
  * it re-parks after a spurious wake-up, so structural equality would let it match a different
  * process's notice over the same condition. The same holds for [CrossingNotice].
  */
-internal class WaitNotice(
-    val process: Process,
-    val condition: Condition
-)
+internal class WaitNotice(val process: Process, val condition: Condition)
 
 /**
  * A pending state event: a suspended [process] waiting for the [guard] function `g(state, t)`
@@ -178,5 +175,5 @@ internal class CrossingNotice(
     val process: Process,
     val guard: () -> Double,
     val tolerance: Double,
-    val levelTriggered: Boolean = false
+    val levelTriggered: Boolean = false,
 )

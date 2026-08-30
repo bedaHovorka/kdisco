@@ -142,7 +142,9 @@ class Resource(capacity: Int = 1) {
             }
             if (free <= 0) break
             val needed = waitAmounts[next]
-                ?: error("Invariant violation: process $next is in the waiters queue but has no recorded reserve amount")
+                ?: error(
+                    "Invariant violation: process $next is in the waiters queue but has no recorded reserve amount",
+                )
             if (needed > free) break
             free -= needed
             totalGranted += needed

@@ -50,7 +50,7 @@ internal enum class ProcessState {
     PASSIVATED,
 
     /** Completed normally or stopped via [Process.terminate]. */
-    TERMINATED
+    TERMINATED,
 }
 
 /**
@@ -68,7 +68,11 @@ abstract class Process : Link() {
 
     internal lateinit var context: SimulationContext
     internal var continuation: kotlin.coroutines.Continuation<Unit>? = null
+
+    @Suppress("ktlint:standard:backing-property-naming", "VariableNaming")
     internal var _terminated: Boolean = false
+
+    @Suppress("ktlint:standard:backing-property-naming", "VariableNaming")
     internal var _state: ProcessState = ProcessState.IDLE
 
     /**
@@ -98,7 +102,7 @@ abstract class Process : Link() {
     private suspend inline fun park(
         state: ProcessState,
         crossinline register: () -> Unit,
-        crossinline onCancel: () -> Unit
+        crossinline onCancel: () -> Unit,
     ) {
         suspendCancellableCoroutine<Unit> { cont ->
             _state = state
@@ -124,7 +128,7 @@ abstract class Process : Link() {
                 context.eventQueue.schedule(this@Process, context.currentTime + duration)
                 context.emit { SimulationEvent.ProcessHeld(context.currentTime, this@Process, duration) }
             },
-            onCancel = { context.eventQueue.remove(this@Process) }
+            onCancel = { context.eventQueue.remove(this@Process) },
         )
     }
 
@@ -136,7 +140,7 @@ abstract class Process : Link() {
             state = ProcessState.PASSIVATED,
             // Not scheduled in the event queue — waits for reactivate()
             register = { context.emit { SimulationEvent.ProcessPassivated(context.currentTime, this@Process) } },
-            onCancel = {}
+            onCancel = {},
         )
     }
 
@@ -162,7 +166,7 @@ abstract class Process : Link() {
             park(
                 state = ProcessState.WAITING,
                 register = { context.waitNotices.add(notice) },
-                onCancel = { context.waitNotices.remove(notice) }
+                onCancel = { context.waitNotices.remove(notice) },
             )
             // The notice is removed by checkWaitNotices at the instant it fires. If this resume
             // came from anywhere else — an independent Process.activate, a reactivate — the notice
@@ -301,7 +305,7 @@ abstract class Process : Link() {
      */
     suspend fun waitUntilCrossing(tolerance: Double = 1e-9, guard: () -> Double) {
         require(tolerance >= 0.0) { "tolerance must be non-negative, got $tolerance" }
-        if (guard() <= 0.0) return  // level-triggered: already satisfied, no wait
+        if (guard() <= 0.0) return // level-triggered: already satisfied, no wait
         awaitCrossing(tolerance, guard, levelTriggered = true)
     }
 
@@ -325,7 +329,7 @@ abstract class Process : Link() {
             park(
                 state = ProcessState.WAITING,
                 register = {},
-                onCancel = { context.crossingNotices.remove(notice) }
+                onCancel = { context.crossingNotices.remove(notice) },
             )
         }
     }
@@ -373,10 +377,9 @@ abstract class Process : Link() {
      * Use [isWaiting] to tell a process parked on a condition or guard notice apart from one that
      * has an event in the queue.
      */
-    fun isActive(): Boolean =
-        _state == ProcessState.RUNNING ||
-            _state == ProcessState.SCHEDULED ||
-            _state == ProcessState.WAITING
+    fun isActive(): Boolean = _state == ProcessState.RUNNING ||
+        _state == ProcessState.SCHEDULED ||
+        _state == ProcessState.WAITING
 
     /**
      * Returns true while this process is parked on a condition or guard notice — suspended in
@@ -395,8 +398,7 @@ abstract class Process : Link() {
      * starts). This, not [isActive], is what [activate] guards on: a [ProcessState.WAITING] process
      * has no turn of its own, so activating it is not a duplicate.
      */
-    internal fun isRunningOrScheduled(): Boolean =
-        _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
+    internal fun isRunningOrScheduled(): Boolean = _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
 
     /**
      * Returns true if this process is passivated (suspended until explicitly
@@ -422,7 +424,9 @@ abstract class Process : Link() {
         @PublishedApi
         internal var activeContext: SimulationContext?
             get() = SimulationContextHolder.context
-            set(value) { SimulationContextHolder.context = value }
+            set(value) {
+                SimulationContextHolder.context = value
+            }
 
         /**
          * Schedules a process to begin execution after an optional delay.
@@ -456,8 +460,8 @@ abstract class Process : Link() {
         fun activate(process: Process, delay: Double = 0.0) {
             require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
             val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
-            if (process._terminated) return          // mirrors reactivate(); never resurrect the dead
-            if (process.isRunningOrScheduled()) return  // already has a turn — no duplicate event
+            if (process._terminated) return // mirrors reactivate(); never resurrect the dead
+            if (process.isRunningOrScheduled()) return // already has a turn — no duplicate event
             process.context = ctx
             process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {
@@ -484,9 +488,9 @@ abstract class Process : Link() {
             val ctx = process.context
             process._state = ProcessState.SCHEDULED
             ctx.emit { SimulationEvent.ProcessReactivated(ctx.currentTime, process) }
-            ctx.waitNotices.removeAll { it.process === process }  // clear stale wait-until notices
-            ctx.crossingNotices.removeAll { it.process === process }  // clear stale crossing notices
-            ctx.eventQueue.remove(process)   // prevent duplicate if already scheduled
+            ctx.waitNotices.removeAll { it.process === process } // clear stale wait-until notices
+            ctx.crossingNotices.removeAll { it.process === process } // clear stale crossing notices
+            ctx.eventQueue.remove(process) // prevent duplicate if already scheduled
             ctx.eventQueue.schedule(process, ctx.currentTime)
         }
 
@@ -515,7 +519,4 @@ abstract class Process : Link() {
     }
 }
 
-internal class PendingActivation(
-    val process: Process,
-    val delay: Double
-)
+internal class PendingActivation(val process: Process, val delay: Double)

@@ -201,7 +201,7 @@ internal class ContinuousMonitor(
         notice: CrossingNotice,
         stepStart: Double,
         stepEnd: Double,
-        guardAtStart: Double
+        guardAtStart: Double,
     ): Double {
         var lo = stepStart
         var hi = stepEnd
