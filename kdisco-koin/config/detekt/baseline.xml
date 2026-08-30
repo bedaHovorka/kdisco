@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>UnusedPrivateProperty:KoinSimulationTest.kt$KoinSimulationTest.Customer$private val id: Int</ID>
+  </CurrentIssues>
+</SmellBaseline>

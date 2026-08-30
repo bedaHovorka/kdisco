@@ -377,7 +377,7 @@ class ResourceTest {
 
         assertThat(thrownException).isNotNull()
         assertThat(thrownException!!.message).isNotNull()
-        assertThat(thrownException!!.message!!).contains("release")
+        assertThat(thrownException.message!!).contains("release")
     }
 
     /**

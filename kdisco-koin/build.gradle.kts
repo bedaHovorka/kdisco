@@ -56,3 +56,44 @@ publishing {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// SonarCloud
+// ---------------------------------------------------------------------------
+// See the equivalent block in kdisco-core: this module is Kotlin Multiplatform too,
+// so `sonar.java.libraries` has to be supplied explicitly from the module's own
+// resolved classpath. Paths are declared per module so nothing gets indexed twice.
+val sonarJavaLibrariesFile = layout.buildDirectory.file("sonar/java-libraries.txt")
+
+val sonarJavaLibraries by tasks.registering {
+    val jvmCompileClasspath = configurations.named("jvmCompileClasspath")
+    val jvmTestCompileClasspath = configurations.named("jvmTestCompileClasspath")
+    val output = sonarJavaLibrariesFile
+    outputs.file(output)
+    doLast {
+        val jars = (jvmCompileClasspath.get().files + jvmTestCompileClasspath.get().files)
+            .filter { it.exists() }
+            .distinct()
+        output.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(jars.joinToString(",") { it.absolutePath })
+        }
+    }
+}
+
+fun existingPaths(vararg paths: String): String =
+    paths.filter { file(it).exists() }.joinToString(",")
+
+sonar {
+    properties {
+        property("sonar.sources", existingPaths("src/commonMain/kotlin", "src/jvmMain/kotlin"))
+        property("sonar.tests", existingPaths("src/commonTest/kotlin", "src/jvmTest/kotlin"))
+        property("sonar.java.binaries", "build/classes/kotlin/jvm/main")
+        property("sonar.java.test.binaries", "build/classes/kotlin/jvm/test")
+        property("sonar.sourceEncoding", "UTF-8")
+        property(
+            "sonar.java.libraries",
+            sonarJavaLibrariesFile.get().asFile.takeIf { it.isFile }?.readText().orEmpty(),
+        )
+    }
+}

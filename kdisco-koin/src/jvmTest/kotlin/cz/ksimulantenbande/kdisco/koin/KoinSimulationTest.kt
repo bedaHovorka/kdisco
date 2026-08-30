@@ -121,7 +121,7 @@ class KoinSimulationTest {
 
         // All 5 customers should have arrived and been served
         assertThat(stats!!.arrivals.size).isEqualTo(5)
-        assertThat(stats!!.departures.size).isEqualTo(5)
+        assertThat(stats.departures.size).isEqualTo(5)
     }
 
     @Test
@@ -184,7 +184,7 @@ class KoinSimulationTest {
         var tc: TrackedContinuous? = null
         koinSimulation(continuousModule, endTime = 5.0) {
             tc = get<TrackedContinuous>()
-            tc!!.start()
+            tc.start()
             // Activate a minimal process to drive simulation time forward
             Process.activate(object : Process() {
                 override suspend fun actions() {

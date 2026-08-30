@@ -393,7 +393,7 @@ abstract class Process : Link() {
          */
         suspend fun wait(queue: Head) {
             val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
-            val current = ctx.currentProcess as? Process
+            val current = ctx.currentProcess
                 ?: throw DiscoException("No current process")
             current.into(queue)
             current.passivate()

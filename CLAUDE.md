@@ -86,6 +86,73 @@ kdisco/
 ./gradlew :kdisco-koin:test
 ```
 
+### Quality gates — the clean-code trinity
+
+kDisco is gated by three tools plus Kover coverage. **All three must pass before a change
+can be merged.**
+
+| Tool | Gates | Local command |
+|---|---|---|
+| **ktlint** | formatting | `./gradlew ktlintCheck` (auto-fix: `./gradlew ktlintFormat`) |
+| **detekt** | code smells | `./gradlew detekt` |
+| **SonarCloud** | bugs, coverage, duplication | runs in CI (`./gradlew koverXmlReport sonar`) |
+
+```bash
+# Everything a PR is gated on, locally
+./gradlew ktlintCheck detekt build
+
+# Aggregate JVM coverage report -> build/reports/kover/report.xml (+ koverHtmlReport)
+./gradlew koverXmlReport
+```
+
+Notes and constraints:
+
+- **Coverage is Kover, not JaCoCo** — JaCoCo does not understand Kotlin Multiplatform.
+  Kover emits a JVM-target XML report that Sonar reads via
+  `sonar.coverage.jacoco.xmlReportPaths`.
+- **Only the JVM target is covered.** `commonMain` is compiled into the JVM target and
+  `commonTest` runs there, so this covers essentially the whole engine; the platform
+  `actual`s in `jvmMain` / `jsMain` / `nativeMain` are the known blind spot.
+- **Benchmarks are excluded** from coverage and from Sonar analysis
+  (`TickSchedulingBenchmark`, `ScaleBenchmark`) so they neither inflate coverage nor
+  count as debt.
+- **Baselines.** Pre-existing findings are baselined in `<module>/config/ktlint/baseline.xml`
+  and `<module>/config/detekt/baseline.xml`. New code must be clean; never regenerate a
+  baseline to silence a new finding. Regenerate deliberately with
+  `./gradlew ktlintGenerateBaseline detektBaseline` after a genuine ruleset change.
+- **Sonar is per-module.** `sonar.sources` / `sonar.tests` / `sonar.java.binaries` /
+  `sonar.java.libraries` are declared in each module's `build.gradle.kts`, never in the
+  root script, so no file is indexed twice. Because these are KMP modules with no `java`
+  source sets the plugin cannot auto-detect `sonar.java.libraries`; each module has a
+  `sonarJavaLibraries` task that writes its own resolved JVM classpath to
+  `build/sonar/java-libraries.txt` (resolving it inside the `sonar {}` block would
+  re-introduce cross-project configuration resolution). Without it every Kotlin rule
+  needing type resolution silently degrades.
+- **Every analysis must be scoped.** CI passes `sonar.pullrequest.*` when a PR is open and
+  `sonar.branch.name` otherwise, and hard-fails when neither can be determined — an
+  unscoped run silently overwrites the trunk analysis. PR runs also pass
+  `-Dsonar.qualitygate.wait=true`, so a red quality gate fails the job for real.
+- **Encoding.** `sonar.sourceEncoding` and `JavaCompile.options.encoding` are pinned to
+  UTF-8; the KDoc in this codebase is full of en-dashes and arrows, and a stale platform
+  default renders them as mojibake in the analysis.
+
+#### One-time SonarCloud project setup
+
+`sonar.leak.period=previous_analysis` must be set through the Web API — the free-plan UI
+does not offer it. The default `previous_version` window spans a whole release here, which
+makes the "new issues / new coverage" gate meaningless for most PRs.
+
+```bash
+curl -u "$SONAR_TOKEN:" -X POST \
+  'https://sonarcloud.io/api/settings/set' \
+  -d 'component=bedaHovorka_kdisco' \
+  -d 'key=sonar.leak.period' \
+  -d 'value=previous_analysis'
+```
+
+CI also needs a `SONAR_TOKEN` repository secret. The SonarCloud job runs on Java 17 (the
+scanner requires 17+) while the Kotlin `jvmTarget` stays at 11.
+
 ## Development Notes
 
 ### Coroutine-based Simulation Engine

@@ -75,7 +75,7 @@ class Resource(capacity: Int = 1) {
         require(amount > 0) { "Amount must be positive, got $amount" }
         require(amount <= capacity) { "Amount $amount exceeds capacity $capacity" }
         val ctx = Process.activeContext ?: throw DiscoException("Not inside a simulation")
-        val current = ctx.currentProcess as? Process
+        val current = ctx.currentProcess
             ?: throw DiscoException("No current process")
         if (ctx.monitorActive) throw DiscoException("Illegal call of reserve (class Resource)")
 
@@ -120,7 +120,7 @@ class Resource(capacity: Int = 1) {
         require(amount > 0) { "Amount must be positive, got $amount" }
         require(amount <= occupied) { "Cannot release $amount, only $occupied occupied" }
         val ctx = Process.activeContext ?: throw DiscoException("Not inside a simulation")
-        val current = ctx.currentProcess as? Process
+        val current = ctx.currentProcess
             ?: throw DiscoException("No current process")
         if (ctx.monitorActive) throw DiscoException("Illegal call of release (class Resource)")
         occupied -= amount

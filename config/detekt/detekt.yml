@@ -1,0 +1,47 @@
+build:
+  maxIssues: 0
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+# Formatting is owned by ktlint; the detekt-formatting ruleset is deliberately not
+# on the classpath so the two tools never report the same finding.
+
+complexity:
+  LongParameterList:
+    active: true
+    functionThreshold: 8
+    constructorThreshold: 8
+  TooManyFunctions:
+    active: true
+    thresholdInFiles: 40
+    thresholdInClasses: 40
+    thresholdInObjects: 40
+    thresholdInInterfaces: 40
+    ignorePrivate: true
+    ignoreOverridden: true
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: true
+    excludes: ['**/test/**', '**/*Test.kt', '**/*Benchmark.kt']
+  SwallowedException:
+    active: true
+    excludes: ['**/test/**', '**/*Test.kt', '**/*Benchmark.kt']
+
+naming:
+  FunctionNaming:
+    active: true
+    excludes: ['**/test/**', '**/*Test.kt', '**/*Benchmark.kt']
+
+style:
+  MagicNumber:
+    active: true
+    excludes: ['**/test/**', '**/*Test.kt', '**/*Benchmark.kt', '**/examples/**']
+  ReturnCount:
+    active: true
+    max: 4
+  WildcardImport:
+    active: true
+    excludes: ['**/test/**', '**/*Test.kt', '**/*Benchmark.kt']

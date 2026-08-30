@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<baseline version="1.0">
+    <file name="build.gradle.kts">
+        <error line="30" column="32" source="standard:argument-list-wrapping" />
+        <error line="30" column="98" source="standard:argument-list-wrapping" />
+        <error line="30" column="118" source="standard:argument-list-wrapping" />
+        <error line="30" column="121" source="standard:argument-list-wrapping" />
+        <error line="30" column="121" source="standard:max-line-length" />
+        <error line="84" column="50" source="standard:function-signature" />
+    </file>
+    <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/koin/Dsl.kt">
+        <error line="46" column="44" source="standard:trailing-comma-on-declaration-site" />
+        <error line="65" column="44" source="standard:trailing-comma-on-declaration-site" />
+        <error line="93" column="45" source="standard:trailing-comma-on-declaration-site" />
+    </file>
+    <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/koin/KoinContinuous.kt">
+        <error line="17" column="33" source="standard:class-signature" />
+        <error line="17" column="47" source="standard:class-signature" />
+        <error line="29" column="58" source="standard:trailing-comma-on-declaration-site" />
+        <error line="37" column="58" source="standard:trailing-comma-on-declaration-site" />
+    </file>
+    <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/koin/KoinProcess.kt">
+        <error line="33" column="30" source="standard:class-signature" />
+        <error line="33" column="41" source="standard:class-signature" />
+        <error line="54" column="58" source="standard:trailing-comma-on-declaration-site" />
+        <error line="62" column="58" source="standard:trailing-comma-on-declaration-site" />
+    </file>
+    <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/koin/SimulationKoinContext.kt">
+        <error line="31" column="5" source="standard:class-signature" />
+        <error line="32" column="5" source="standard:class-signature" />
+        <error line="32" column="66" source="standard:class-signature" />
+        <error line="32" column="66" source="standard:trailing-comma-on-declaration-site" />
+        <error line="51" column="58" source="standard:trailing-comma-on-declaration-site" />
+        <error line="59" column="58" source="standard:trailing-comma-on-declaration-site" />
+        <error line="104" column="18" source="standard:statement-wrapping" />
+        <error line="104" column="46" source="standard:statement-wrapping" />
+        <error line="111" column="52" source="standard:function-signature" />
+    </file>
+    <file name="src/jvmMain/kotlin/cz/ksimulantenbande/kdisco/koin/PlatformKoinContext.kt">
+        <error line="34" column="18" source="standard:statement-wrapping" />
+        <error line="34" column="52" source="standard:statement-wrapping" />
+    </file>
+    <file name="src/jvmTest/kotlin/cz/ksimulantenbande/kdisco/koin/KoinSimulationTest.kt">
+        <error line="8" column="1" source="standard:no-unused-imports" />
+    </file>
+</baseline>

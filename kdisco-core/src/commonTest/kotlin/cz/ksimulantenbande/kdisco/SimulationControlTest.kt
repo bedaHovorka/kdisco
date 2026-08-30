@@ -5,6 +5,7 @@ package cz.ksimulantenbande.kdisco
 
 import assertk.assertThat
 import assertk.assertions.*
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
@@ -119,6 +120,7 @@ class SimulationControlTest {
         job.join()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun throttleApproximatesRealTimeFactor() = runTest {
         val controller = SimulationController()
