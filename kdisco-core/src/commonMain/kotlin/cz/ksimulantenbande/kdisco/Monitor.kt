@@ -181,9 +181,10 @@ internal class ContinuousMonitor(
 
         // Roll variable states back to the located crossing time and schedule the process there.
         probeStateAt(stepStart, bestTime)
-        if (!context.eventQueue.contains(notice.process)) {
-            context.eventQueue.schedule(notice.process, bestTime)
-        }
+        // Scheduled unconditionally: a crossing notice and a queued event are two distinct resumes
+        // owed to the same process (issue #73). Suppressing the crossing wake-up because an
+        // independent Process.activate happened to queue an event would silently drop one of them.
+        context.eventQueue.schedule(notice.process, bestTime)
         context.crossingNotices.remove(notice)
         return true
     }

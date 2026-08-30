@@ -21,6 +21,20 @@ internal class SimulationContext {
     /** Registered event listeners. Empty list = zero-overhead path (guard is isEmpty()). */
     val eventListeners: MutableList<(SimulationEvent) -> Unit> = mutableListOf()
 
+    /**
+     * Emits an event to every registered listener, in registration order.
+     *
+     * [factory] runs only when at least one listener is registered, so a run with no listeners
+     * never allocates a [SimulationEvent] — this is the single implementation of the zero-overhead
+     * path documented above, replacing the guard-and-dispatch block that used to be hand-written at
+     * every emit site. `inline` keeps it exactly as cheap as those copies were.
+     */
+    internal inline fun emit(factory: () -> SimulationEvent) {
+        if (eventListeners.isEmpty()) return
+        val event = factory()
+        eventListeners.forEach { it(event) }
+    }
+
     // --- Continuous simulation state ---
 
     /** Head of the active [Continuous] list, ordered by descending priority. */
@@ -69,19 +83,27 @@ internal class SimulationContext {
      */
     internal fun checkWaitNotices() {
         if (waitNotices.isEmpty()) return
-        val satisfied = mutableListOf<WaitNotice>()
+        // Allocated lazily: a model with one live waitUntil runs this on every discrete event and
+        // every integration step, and almost none of those calls have anything to release.
+        var satisfied: MutableList<WaitNotice>? = null
         val iter = waitNotices.iterator()
         while (iter.hasNext()) {
             val notice = iter.next()
             if (notice.condition.test()) {
                 iter.remove()
-                satisfied.add(notice)
+                val list = satisfied ?: mutableListOf<WaitNotice>().also { satisfied = it }
+                list.add(notice)
             }
         }
-        for (notice in satisfied) {
-            if (!eventQueue.contains(notice.process)) {
-                eventQueue.schedule(notice.process, currentTime)
-            }
+        val released = satisfied ?: return
+        for (notice in released) {
+            // Scheduled unconditionally. A satisfied notice and a queued event are two distinct
+            // resumes owed to the same process (issue #73): the notice says "your wait is over",
+            // an independent Process.activate says "here is another turn". Letting a queued event
+            // stand in for the notice's wake-up silently spends one intent on the other. A surplus
+            // event is harmless — Simulation.run resumes a stored continuation when there is one
+            // and refuses to relaunch a terminated process.
+            eventQueue.schedule(notice.process, currentTime)
         }
     }
 
@@ -102,23 +124,22 @@ internal class SimulationContext {
      */
     internal fun checkLevelCrossings(): Boolean {
         if (crossingNotices.isEmpty()) return false
-        var fired = false
-        val satisfied = mutableListOf<CrossingNotice>()
+        var satisfied: MutableList<CrossingNotice>? = null
         val iter = crossingNotices.iterator()
         while (iter.hasNext()) {
             val notice = iter.next()
             if (notice.levelTriggered && notice.guard() <= 0.0) {
                 iter.remove()
-                satisfied.add(notice)
-                fired = true
+                val list = satisfied ?: mutableListOf<CrossingNotice>().also { satisfied = it }
+                list.add(notice)
             }
         }
-        for (notice in satisfied) {
-            if (!eventQueue.contains(notice.process)) {
-                eventQueue.schedule(notice.process, currentTime)
-            }
+        val released = satisfied ?: return false
+        for (notice in released) {
+            // Unconditional, for the same reason as checkWaitNotices (issue #73).
+            eventQueue.schedule(notice.process, currentTime)
         }
-        return fired
+        return true
     }
 }
 

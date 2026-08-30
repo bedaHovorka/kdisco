@@ -30,9 +30,7 @@ class Variable(initialState: Double = 0.0) : Link() {
                 field = value
                 val ctx = Process.activeContext ?: return
                 if (ctx.monitorActive) return  // RKF45 intermediate/committed writes — not a discrete event
-                if (ctx.eventListeners.isEmpty()) return
-                val event = SimulationEvent.VariableChanged(ctx.currentTime, this, old, value)
-                ctx.eventListeners.forEach { it(event) }
+                ctx.emit { SimulationEvent.VariableChanged(ctx.currentTime, this, old, value) }
             }
         }
 

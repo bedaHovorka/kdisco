@@ -159,7 +159,7 @@ class Simulation internal constructor() {
                     // this guard being in place).
                     if (!process._terminated) {
                         process._state = ProcessState.RUNNING
-                        emit(SimulationEvent.ProcessActivated(context.currentTime, process))
+                        context.emit { SimulationEvent.ProcessActivated(context.currentTime, process) }
                         simScope.launch {
                             try {
                                 process.actions()
@@ -169,7 +169,7 @@ class Simulation internal constructor() {
                                 if (!process._terminated) {
                                     process._state = ProcessState.TERMINATED
                                     process._terminated = true
-                                    emit(SimulationEvent.ProcessTerminated(context.currentTime, process))
+                                    context.emit { SimulationEvent.ProcessTerminated(context.currentTime, process) }
                                 }
                             }
                         }
@@ -225,12 +225,6 @@ class Simulation internal constructor() {
         context.eventListeners += listener
     }
 
-    /** Emit a [SimulationEvent] to all registered listeners, in registration order. */
-    internal fun emit(event: SimulationEvent) {
-        if (context.eventListeners.isEmpty()) return
-        context.eventListeners.forEach { it(event) }
-    }
-
     /**
      * Returns the scheduled time of the next pending event, or [Double.MAX_VALUE] if no
      * events are queued. May be called from the [run] [beforeEvent] hook to implement
@@ -243,10 +237,14 @@ class Simulation internal constructor() {
         return context.eventQueue.size()
     }
 
-    /** Number of processes that are running, scheduled, or pending activation. Passivated processes are not counted. */
+    /**
+     * Number of processes that are running, scheduled, pending activation, or parked on a wait
+     * notice ([Process.waitUntil]) or crossing notice ([Process.waitCrossing],
+     * [Process.waitUntilCrossing]). Passivated processes are not counted.
+     */
     fun activeProcessCount(): Int {
         return context.pendingActivations.size + context.eventQueue.size() +
-                context.crossingNotices.size +
+                context.waitNotices.size + context.crossingNotices.size +
                 (if (context.currentProcess != null) 1 else 0)
     }
 
