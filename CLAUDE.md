@@ -156,20 +156,55 @@ Notes and constraints:
 
 #### One-time SonarCloud project setup
 
-`sonar.leak.period=previous_analysis` must be set through the Web API — the free-plan UI
-does not offer it. The default `previous_version` window spans a whole release here, which
-makes the "new issues / new coverage" gate meaningless for most PRs.
+CI needs a `SONAR_TOKEN` repository secret. The SonarCloud job runs on Java 17 (the
+scanner requires 17+) while the Kotlin `jvmTarget` stays at 11.
 
-```bash
-curl -u "$SONAR_TOKEN:" -X POST \
-  'https://sonarcloud.io/api/settings/set' \
-  -d 'component=bedaHovorka_kdisco' \
-  -d 'key=sonar.leak.period' \
-  -d 'value=previous_analysis'
+kDisco uses the default **`previous_version`** new-code period. That window spans a whole
+release, which is acceptable for a project this size. A tighter window would require a
+New Code Definition set at project-creation time (`newCodeDefinitionType` parameter of
+`api/projects/create`) — every `api/new_code_periods/*` endpoint is 404 on SonarCloud,
+and the free-plan UI does not expose it. Do **not** set `sonar.leak.period` to
+`previous_analysis`; that value is valid on SonarQube Server only, and the scanner rejects
+it on the first *branch* analysis with:
+
+```
+Invalid new code period 'previous_analysis': version is none of the existing ones
 ```
 
-CI also needs a `SONAR_TOKEN` repository secret. The SonarCloud job runs on Java 17 (the
-scanner requires 17+) while the Kotlin `jvmTarget` stays at 11.
+**Trap — `api/projects/create` ignores its `branch` parameter.** Creating the project with
+`-d branch=main` still produces a main branch named `master`. Every CI run that passes
+`sonar.branch.name=main` then creates a second branch that the free plan discards, and the
+trunk analysis never updates. After creating a project always rename the branch and verify:
+
+```bash
+curl -u "$SONAR_TOKEN:" -X POST 'https://sonarcloud.io/api/project_branches/rename' \
+  -d project=bedaHovorka_kdisco -d name=main
+
+curl -u "$SONAR_TOKEN:" \
+  'https://sonarcloud.io/api/project_branches/list?project=bedaHovorka_kdisco'
+```
+
+**Rule — never verify a Sonar setting by reading it back.** `api/settings/set` returns 204
+and `api/settings/values` echoes the stored value without validating it. The scanner
+validates on the first *branch* analysis; a pull-request analysis always computes its own
+diff and bypasses the new-code period check entirely, so a green PR gate is not evidence
+the setting is accepted. Verify against an analysis result instead:
+
+- Check `api/qualitygates/project_status?projectKey=bedaHovorka_kdisco` — look at
+  `ignoredConditions` (true means the gate was waived) and the individual condition
+  statuses.
+- Read `new_coverage` / `new_uncovered_conditions` from
+  `api/measures/component?component=bedaHovorka_kdisco&metricKeys=new_coverage,...`
+  rather than trusting a green tick.
+
+Note that a project's **first** analysis passes new-code conditions for free
+(`"ignoredConditions": true`). A first green gate is not evidence the gate works — the
+second analysis, once a baseline exists, judges it for real.
+
+**Note on `new_coverage`**: it counts **branch conditions as well as lines**. A diff whose
+lines are fully covered can still sit far below the 80% threshold if `?:` branches go
+untested. The per-file `component_tree` view shows only line coverage and can read 100%
+while the project total does not.
 
 ## Development Notes
 
