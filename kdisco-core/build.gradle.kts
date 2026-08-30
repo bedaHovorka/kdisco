@@ -159,6 +159,9 @@ sonar {
         property("sonar.java.binaries", "build/classes/kotlin/jvm/main")
         property("sonar.java.test.binaries", "build/classes/kotlin/jvm/test")
         property("sonar.sourceEncoding", "UTF-8")
+        // `properties { }` is evaluated lazily, when the `sonar` task runs; the root
+        // script makes both `sonar` and `sonarResolver` depend on `sonarJavaLibraries`,
+        // so the file is already on disk by then.
         property(
             "sonar.java.libraries",
             sonarJavaLibrariesFile.get().asFile.takeIf { it.isFile }?.readText().orEmpty(),
