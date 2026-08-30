@@ -13,8 +13,7 @@ package cz.ksimulantenbande.kdisco
  * is `1L` when a cached value is present, `0L` otherwise.
  */
 data class RandomState(val data: LongArray) {
-    override fun equals(other: Any?): Boolean =
-        other is RandomState && data.contentEquals(other.data)
+    override fun equals(other: Any?): Boolean = other is RandomState && data.contentEquals(other.data)
 
     override fun hashCode(): Int = data.contentHashCode()
 }
