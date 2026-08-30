@@ -28,10 +28,7 @@ import org.koin.dsl.koinApplication
  * }
  * ```
  */
-class SimulationKoinContext(
-    modules: List<Module>,
-    private val simulationSetup: SimulationKoinContext.() -> Unit
-) {
+class SimulationKoinContext(modules: List<Module>, private val simulationSetup: SimulationKoinContext.() -> Unit) {
     /** The Koin application for this simulation run. */
     val koinApp: KoinApplication = koinApplication {
         modules(modules)
@@ -49,7 +46,7 @@ class SimulationKoinContext(
      */
     inline fun <reified T : Any> get(
         qualifier: Qualifier? = null,
-        noinline parameters: ParametersDefinition? = null
+        noinline parameters: ParametersDefinition? = null,
     ): T = koin.get(qualifier, parameters)
 
     /**
@@ -57,7 +54,7 @@ class SimulationKoinContext(
      */
     inline fun <reified T : Any> inject(
         qualifier: Qualifier? = null,
-        noinline parameters: ParametersDefinition? = null
+        noinline parameters: ParametersDefinition? = null,
     ): Lazy<T> = lazy { koin.get(qualifier, parameters) }
 
     /**
@@ -106,13 +103,14 @@ internal expect var platformKoinContext: SimulationKoinContext?
 @PublishedApi
 internal var currentKoinContext: SimulationKoinContext?
     get() = platformKoinContext
-    set(value) { platformKoinContext = value }
+    set(value) {
+        platformKoinContext = value
+    }
 
 /**
  * Returns the [SimulationKoinContext] for the currently running simulation.
  *
  * @throws IllegalStateException if called outside a koinSimulation block.
  */
-fun activeSimulationKoin(): SimulationKoinContext =
-    currentKoinContext
-        ?: error("No active kDisco Koin context. Are you inside a koinSimulation {} block?")
+fun activeSimulationKoin(): SimulationKoinContext = currentKoinContext
+    ?: error("No active kDisco Koin context. Are you inside a koinSimulation {} block?")

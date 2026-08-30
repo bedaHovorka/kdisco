@@ -46,7 +46,7 @@ suspend fun koinSimulation(
     vararg modules: Module,
     endTime: Double = Double.MAX_VALUE,
     controller: SimulationController? = null,
-    setup: SimulationKoinContext.() -> Unit
+    setup: SimulationKoinContext.() -> Unit,
 ): Simulation {
     val ctx = SimulationKoinContext(modules.toList(), setup)
     return try {
@@ -66,7 +66,7 @@ suspend fun koinSimulation(
     modules: List<Module>,
     endTime: Double = Double.MAX_VALUE,
     controller: SimulationController? = null,
-    setup: SimulationKoinContext.() -> Unit
+    setup: SimulationKoinContext.() -> Unit,
 ): Simulation {
     val ctx = SimulationKoinContext(modules, setup)
     return try {
@@ -95,7 +95,7 @@ suspend fun <P> koinSimulationSweep(
     params: Iterable<P>,
     endTime: Double = Double.MAX_VALUE,
     controller: SimulationController? = null,
-    setup: SimulationKoinContext.(P) -> Unit
+    setup: SimulationKoinContext.(P) -> Unit,
 ): List<Simulation> = params.map { param ->
     koinSimulation(*modules, endTime = endTime, controller = controller) { setup(param) }
 }
