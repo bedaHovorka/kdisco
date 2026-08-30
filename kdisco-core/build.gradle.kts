@@ -106,3 +106,65 @@ publishing {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// SonarCloud
+// ---------------------------------------------------------------------------
+// kdisco-core is Kotlin Multiplatform and has no `java` source sets, so the Sonar
+// Gradle plugin cannot auto-detect `sonar.java.libraries`. Without it every Kotlin
+// rule that needs type resolution silently degrades. Resolve the classpath from this
+// module's own context (resolving it inside the `sonar {}` block would re-introduce
+// cross-project configuration resolution) and hand Sonar the resulting file list.
+val sonarJavaLibrariesFile = layout.buildDirectory.file("sonar/java-libraries.txt")
+
+val sonarJavaLibraries by tasks.registering {
+    val jvmCompileClasspath = configurations.named("jvmCompileClasspath")
+    val jvmTestCompileClasspath = configurations.named("jvmTestCompileClasspath")
+    val output = sonarJavaLibrariesFile
+    outputs.file(output)
+    doLast {
+        val jars = (jvmCompileClasspath.get().files + jvmTestCompileClasspath.get().files)
+            .filter { it.exists() }
+            .distinct()
+        output.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(jars.joinToString(",") { it.absolutePath })
+        }
+    }
+}
+
+fun existingPaths(vararg paths: String): String =
+    paths.filter { file(it).exists() }.joinToString(",")
+
+sonar {
+    properties {
+        property(
+            "sonar.sources",
+            existingPaths(
+                "src/commonMain/kotlin",
+                "src/nonJvmMain/kotlin",
+                "src/jvmMain/kotlin",
+                "src/jsMain/kotlin",
+                "src/nativeMain/kotlin",
+            ),
+        )
+        property(
+            "sonar.tests",
+            existingPaths(
+                "src/commonTest/kotlin",
+                "src/jvmTest/kotlin",
+                "src/linuxX64Test/kotlin",
+            ),
+        )
+        property("sonar.java.binaries", "build/classes/kotlin/jvm/main")
+        property("sonar.java.test.binaries", "build/classes/kotlin/jvm/test")
+        property("sonar.sourceEncoding", "UTF-8")
+        // `properties { }` is evaluated lazily, when the `sonar` task runs; the root
+        // script makes both `sonar` and `sonarResolver` depend on `sonarJavaLibraries`,
+        // so the file is already on disk by then.
+        property(
+            "sonar.java.libraries",
+            sonarJavaLibrariesFile.get().asFile.takeIf { it.isFile }?.readText().orEmpty(),
+        )
+    }
+}

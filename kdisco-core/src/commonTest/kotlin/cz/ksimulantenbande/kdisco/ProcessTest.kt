@@ -449,4 +449,36 @@ class ProcessTest {
         assertThat(p.isTerminated()).isTrue()
         assertThat(p.isActive()).isFalse()
     }
+
+    /**
+     * `Process.wait(queue)` parks the *current* process, so there must be one. The
+     * `beforeEvent` hook runs at the top of the scheduler loop, before the next event's
+     * process becomes current, which is exactly that state.
+     */
+    @Test
+    fun waitWithoutCurrentProcessThrows() = runTest {
+        val queue = Head()
+        var thrownException: Throwable? = null
+
+        val sim = simulation {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                }
+            })
+        }
+        sim.run(10.0) {
+            if (thrownException == null) {
+                try {
+                    Process.wait(queue)
+                } catch (e: DiscoException) {
+                    thrownException = e
+                }
+            }
+        }
+
+        assertThat(thrownException).isNotNull()
+        assertThat(thrownException!!.message).isNotNull()
+        assertThat(thrownException.message!!).contains("No current process")
+    }
 }

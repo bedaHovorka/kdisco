@@ -1,0 +1,100 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:BouncingBallsTest.kt$BouncingBallsTest$@Test fun bouncingBallsStayWithinBoundsAfterCollisions()</ID>
+    <ID>CyclomaticComplexMethod:Monitor.kt$ContinuousMonitor$fun integrateUntil(targetTime: Double)</ID>
+    <ID>CyclomaticComplexMethod:Monitor.kt$ContinuousMonitor$private fun locateCrossings(stepStart: Double, guardsBefore: List&lt;Pair&lt;CrossingNotice, Double&gt;&gt;): Boolean</ID>
+    <ID>CyclomaticComplexMethod:RKF45.kt$RKF45Integrator$override fun integrate( monitor: ContinuousMonitor, context: SimulationContext, dtNow: Double, targetTime: Double ): Double</ID>
+    <ID>CyclomaticComplexMethod:Resource.kt$Resource$fun release(amount: Int = 1)</ID>
+    <ID>CyclomaticComplexMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>
+    <ID>EmptyFunctionBlock:ContinuousTest.kt$ContinuousTest.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:EventQueueTest.kt$EventQueueTest.TestProcess${}</ID>
+    <ID>InvalidPackageDeclaration:Euler.kt$package cz.ksimulantenbande.kdisco</ID>
+    <ID>InvalidPackageDeclaration:MathCompat.kt$package cz.ksimulantenbande.kdisco</ID>
+    <ID>InvalidPackageDeclaration:RKF45.kt$package cz.ksimulantenbande.kdisco</ID>
+    <ID>LongMethod:PortableMath.kt$PortableMath$fun ln(x: Double): Double</ID>
+    <ID>LongMethod:RKF45.kt$RKF45Integrator$override fun integrate( monitor: ContinuousMonitor, context: SimulationContext, dtNow: Double, targetTime: Double ): Double</ID>
+    <ID>LongMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>
+    <ID>LoopWithTooManyJumpStatements:Monitor.kt$ContinuousMonitor$while</ID>
+    <ID>LoopWithTooManyJumpStatements:Resource.kt$Resource$while</ID>
+    <ID>LoopWithTooManyJumpStatements:Simulation.kt$Simulation$while</ID>
+    <ID>MagicNumber:Monitor.kt$ContinuousMonitor$0.5</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0.33333333333333333</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0.5</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x000FFFFF</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x00100000</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x100000</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x3E300000</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x3FD62E42</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x3FF00000</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x3FF0A2B2</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x40862E42</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x6147A</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x6B851</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x7FF00000</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x7FFFFFFF</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0x95F64</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0xFFFFF</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$0xFFFFFFFFL</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$1000</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$1021</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$1023</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$20</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$3</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$31</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$32</ID>
+    <ID>MagicNumber:PortableMath.kt$PortableMath$54</ID>
+    <ID>MagicNumber:RKF45.kt$RKF45Integrator$0.5</ID>
+    <ID>MagicNumber:RKF45.kt$RKF45Integrator$5.0</ID>
+    <ID>MagicNumber:RKF45.kt$RKF45Integrator$64.0</ID>
+    <ID>MagicNumber:Random.kt$Random$2.0</ID>
+    <ID>MagicNumber:Random.kt$Random$26</ID>
+    <ID>MagicNumber:Random.kt$Random$27</ID>
+    <ID>MagicNumber:Random.kt$Random$31</ID>
+    <ID>MagicNumber:Random.kt$Random$48</ID>
+    <ID>MagicNumber:Random.kt$Random$53</ID>
+    <ID>MagicNumber:RandomJvm.kt$Random$2.0</ID>
+    <ID>MagicNumber:SimulationContext.kt$SimulationContext$1e-5</ID>
+    <ID>MagicNumber:SimulationController.kt$SimulationController$1000</ID>
+    <ID>MagicNumber:SimulationController.kt$SimulationController$1000.0</ID>
+    <ID>MagicNumber:SimulationController.kt$SimulationController$5</ID>
+    <ID>MatchingDeclarationName:Euler.kt$EulerIntegrator : Integrator</ID>
+    <ID>MatchingDeclarationName:RKF45.kt$RKF45Integrator : Integrator</ID>
+    <ID>MatchingDeclarationName:RandomJvm.kt$Random</ID>
+    <ID>MaxLineLength:Resource.kt$Resource$?:</ID>
+    <ID>MaxLineLength:TickSchedulingBenchmark.kt$TickSchedulingBenchmark.Result$"$label: ticks=$ticks wall=${(wallNs / 1_000_000.0).fmt()}ms ns/tick=${nsPerTick.fmt()} ticks/s=${ticksPerSecond.fmt()}"</ID>
+    <ID>MaxLineLength:Variable.kt$Variable$// Mirrors jDisco: firstVar = pred = suc (sets pred=suc as a tmp value for subsequent suc.pred assignment)</ID>
+    <ID>MaxLineLength:Variable.kt$Variable$_pred = _suc</ID>
+    <ID>NestedBlockDepth:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>
+    <ID>ReturnCount:PortableMath.kt$PortableMath$fun exp(x: Double): Double</ID>
+    <ID>ReturnCount:PortableMath.kt$PortableMath$fun ln(x: Double): Double</ID>
+    <ID>SafeCast:Head.kt$Head$if (p is Link) p else null</ID>
+    <ID>SafeCast:Head.kt$Head$if (s is Link) s else null</ID>
+    <ID>SafeCast:Linkage.kt$Linkage$if (p is Link) p else null</ID>
+    <ID>SafeCast:Linkage.kt$Linkage$if (s is Link) s else null</ID>
+    <ID>ThrowsCount:Resource.kt$Resource$fun release(amount: Int = 1)</ID>
+    <ID>ThrowsCount:Resource.kt$Resource$suspend fun reserve(amount: Int = 1)</ID>
+    <ID>UnusedPrivateProperty:Random.kt$Random$i</ID>
+    <ID>UnusedPrivateProperty:Random.kt$Random$seed: Long</ID>
+    <ID>UnusedPrivateProperty:RandomJvm.kt$Random$i</ID>
+    <ID>UseCheckOrError:Link.kt$Link$throw IllegalStateException("Target is not in any list")</ID>
+    <ID>VariableNaming:BouncingBallsTest.kt$BouncingBallsTest$private val END_T = 10.0</ID>
+    <ID>VariableNaming:BouncingBallsTest.kt$BouncingBallsTest$private val H = 150.0</ID>
+    <ID>VariableNaming:BouncingBallsTest.kt$BouncingBallsTest$private val RADIUS = 10.0</ID>
+    <ID>VariableNaming:BouncingBallsTest.kt$BouncingBallsTest$private val W = 250.0</ID>
+    <ID>VariableNaming:Continuous.kt$Continuous$// Intrusive linked list for the active-continuous list in SimulationContext. // Separate from Link.predRef / sucRef which are used for Head-list membership. // Mirrors jDisco's Continuous.pred / Continuous.suc. // When first in the list: _pred == this. // When not in any list: _pred == null &amp;&amp; _suc == null. internal var _pred: Continuous? = null</ID>
+    <ID>VariableNaming:Continuous.kt$Continuous$internal var _priority: Double = 0.0</ID>
+    <ID>VariableNaming:Continuous.kt$Continuous$internal var _suc: Continuous? = null</ID>
+    <ID>VariableNaming:PilotEjectionTest.kt$PilotEjectionTest$private val DRAG_K = 0.3 // aerodynamic drift scale</ID>
+    <ID>VariableNaming:PilotEjectionTest.kt$PilotEjectionTest$private val GRAVITY = 32.17 // ft/s²</ID>
+    <ID>VariableNaming:PilotEjectionTest.kt$PilotEjectionTest$private val RAIL_VEL = 65.0 // ejection rail exit velocity (ft/s, vertical)</ID>
+    <ID>VariableNaming:PilotEjectionTest.kt$PilotEjectionTest$private val RHO0 = 2377e-6 // sea-level density (slug/ft³)</ID>
+    <ID>VariableNaming:PilotEjectionTest.kt$PilotEjectionTest$private val Y1 = 5.0 // rail length (ft)</ID>
+    <ID>VariableNaming:Process.kt$Process$internal var _state: ProcessState = ProcessState.IDLE</ID>
+    <ID>VariableNaming:Process.kt$Process$internal var _terminated: Boolean = false</ID>
+    <ID>VariableNaming:Variable.kt$Variable$// Intrusive linked list for the active-variable list in SimulationContext. // Separate from Link.predRef / sucRef which are used for Head-list membership. // Mirrors jDisco's Variable.pred / Variable.suc. // When first in the list: _pred == this. // When not in any list: _pred == null &amp;&amp; _suc == null. internal var _pred: Variable? = null</ID>
+    <ID>VariableNaming:Variable.kt$Variable$internal var _oldState: Double = initialState</ID>
+    <ID>VariableNaming:Variable.kt$Variable$internal var _suc: Variable? = null</ID>
+  </CurrentIssues>
+</SmellBaseline>

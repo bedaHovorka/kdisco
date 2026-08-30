@@ -377,7 +377,76 @@ class ResourceTest {
 
         assertThat(thrownException).isNotNull()
         assertThat(thrownException!!.message).isNotNull()
-        assertThat(thrownException!!.message!!).contains("release")
+        assertThat(thrownException.message!!).contains("release")
+    }
+
+    /**
+     * `reserve()` needs a process to charge the units to. The `beforeEvent` hook runs at
+     * the top of the scheduler loop, before the next event's process becomes current, so
+     * it reaches [Resource.reserve] with a live context but no current process.
+     */
+    @Test
+    fun reserveWithoutCurrentProcessThrows() = runTest {
+        val r = Resource()
+        var thrownException: Throwable? = null
+
+        val sim = simulation {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                }
+            })
+        }
+        sim.run(10.0) {
+            if (thrownException == null) {
+                try {
+                    r.reserve()
+                } catch (e: DiscoException) {
+                    thrownException = e
+                }
+            }
+        }
+
+        assertThat(thrownException).isNotNull()
+        assertThat(thrownException!!.message).isNotNull()
+        assertThat(thrownException.message!!).contains("No current process")
+    }
+
+    /**
+     * The same hole on the release side, reached the way it happens in practice: a
+     * [Resource] reused across runs still reports the units the first run never released,
+     * so `release()` clears the amount check and arrives at the process check. A setup
+     * block has a live context but no current process, and `release()` does not suspend.
+     */
+    @Test
+    fun releaseWithoutCurrentProcessThrows() = runTest {
+        val r = Resource()
+
+        // First run leaves a unit booked: the process holds past endTime, so its
+        // release() never executes.
+        runSimulation(endTime = 1.0) {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    r.reserve()
+                    hold(100.0)
+                    r.release()
+                }
+            })
+        }
+        assertThat(r.occupied).isEqualTo(1)
+
+        var thrownException: Throwable? = null
+        simulation {
+            try {
+                r.release()
+            } catch (e: DiscoException) {
+                thrownException = e
+            }
+        }
+
+        assertThat(thrownException).isNotNull()
+        assertThat(thrownException!!.message).isNotNull()
+        assertThat(thrownException.message!!).contains("No current process")
     }
 
     /**
