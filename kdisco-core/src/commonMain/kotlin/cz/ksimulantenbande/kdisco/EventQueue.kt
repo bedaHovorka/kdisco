@@ -36,8 +36,9 @@ internal class EventQueue {
     }
 
     fun remove(process: Process) {
+        val before = events.size
         events.removeAll { it.process === process }
-        process.queuedEventCount = 0
+        process.queuedEventCount -= before - events.size
     }
 
     /**

@@ -35,11 +35,11 @@
         <error line="27" column="41" source="standard:no-multi-spaces" />
         <error line="28" column="44" source="standard:no-multi-spaces" />
         <error line="43" column="40" source="standard:function-expression-body" />
-        <error line="83" column="5" source="standard:class-signature" />
         <error line="84" column="5" source="standard:class-signature" />
         <error line="85" column="5" source="standard:class-signature" />
-        <error line="85" column="29" source="standard:class-signature" />
-        <error line="85" column="29" source="standard:trailing-comma-on-declaration-site" />
+        <error line="86" column="5" source="standard:class-signature" />
+        <error line="86" column="29" source="standard:class-signature" />
+        <error line="86" column="29" source="standard:trailing-comma-on-declaration-site" />
     </file>
     <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/Extensions.kt">
         <error line="20" column="65" source="standard:function-signature" />
