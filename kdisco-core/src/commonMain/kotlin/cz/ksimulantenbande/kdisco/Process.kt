@@ -322,7 +322,7 @@ abstract class Process : Link() {
      * [ProcessState.SCHEDULED] state. It is not active while [passivate]d or
      * after it has [terminate]d.
      */
-    fun isActive(): Boolean = _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
+    open fun isActive(): Boolean = _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
 
     /**
      * Returns true if this process is passivated (suspended until explicitly

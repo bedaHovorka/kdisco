@@ -69,6 +69,14 @@ class Variable(initialState: Double = 0.0) : Link() {
     fun isStarted(): Boolean = _pred != null
 
     /**
+     * Returns true if this variable is currently in the active-variable list.
+     *
+     * @deprecated renamed to [isStarted]
+     */
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    fun isActive(): Boolean = isStarted() // NOSONAR: deprecation is the point of this PR
+
+    /**
      * Returns the value of [state] at the start of the current integration step.
      * Equivalent to [oldState]. Intended for difference-equation descriptions.
      */
@@ -85,7 +93,7 @@ class Variable(initialState: Double = 0.0) : Link() {
      * @throws DiscoException if called during integration.
      */
     fun start(): Variable {
-        val ctx = Process.activeContext ?: return this  // no-op outside simulation (matches jDisco behaviour)
+        val ctx = Process.activeContext ?: return this // no-op outside simulation (matches jDisco behaviour)
         if (ctx.monitorActive) throw DiscoException("Illegal call of start (class Variable)")
         if (_pred == null) {
             val first = ctx.firstVar
@@ -114,7 +122,7 @@ class Variable(initialState: Double = 0.0) : Link() {
      * @throws DiscoException if called during integration.
      */
     fun stop() {
-        val ctx = Process.activeContext ?: return  // no-op outside simulation (matches jDisco behaviour)
+        val ctx = Process.activeContext ?: return // no-op outside simulation (matches jDisco behaviour)
         if (ctx.monitorActive) throw DiscoException("Illegal call of stop (class Variable)")
         if (_pred != null) {
             if (_pred !== this) {
@@ -122,12 +130,12 @@ class Variable(initialState: Double = 0.0) : Link() {
                 _pred!!._suc = _suc
             } else {
                 // This is the first element: advance firstVar.
-                // Mirrors jDisco: firstVar = pred = suc (sets pred=suc as a tmp value for subsequent suc.pred assignment)
+                // Mirrors jDisco: firstVar = pred = suc (pred=suc is a tmp value for the suc.pred assignment below)
                 ctx.firstVar = _suc
-                _pred = _suc  // temporarily set _pred = _suc so the block below sets suc._pred = suc (self-ref as new first)
+                _pred = _suc // temporarily _pred = _suc so the block below sets suc._pred = suc (self-ref as new first)
             }
             if (_suc != null) {
-                _suc!!._pred = _pred  // if we removed first: new first's _pred = itself (self-ref)
+                _suc!!._pred = _pred // if we removed first: new first's _pred = itself (self-ref)
                 _suc = null
             }
             _pred = null

@@ -66,6 +66,14 @@ abstract class Continuous : Process() {
     fun isStarted(): Boolean = _pred != null
 
     /**
+     * Returns true if this continuous process is currently in the active-continuous list.
+     *
+     * @deprecated renamed to [isStarted]
+     */
+    @Deprecated("renamed to isStarted()", ReplaceWith("isStarted()"))
+    override fun isActive(): Boolean = isStarted() // NOSONAR: deprecation is the point of this PR
+
+    /**
      * Returns the current priority of this continuous process.
      */
     fun getPriority(): Double = _priority
@@ -82,7 +90,7 @@ abstract class Continuous : Process() {
      * @throws DiscoException if called during integration.
      */
     open fun start(): Continuous {
-        val ctx = Process.activeContext ?: return this  // no-op outside simulation (matches jDisco behaviour)
+        val ctx = Process.activeContext ?: return this // no-op outside simulation (matches jDisco behaviour)
         if (ctx.monitorActive) throw DiscoException("Illegal call of start (class Continuous)")
         if (_pred == null) {
             if (ctx.firstCont == null) {
@@ -126,7 +134,7 @@ abstract class Continuous : Process() {
      * @throws DiscoException if called during integration.
      */
     open fun stop() {
-        val ctx = Process.activeContext ?: return  // no-op outside simulation (matches jDisco behaviour)
+        val ctx = Process.activeContext ?: return // no-op outside simulation (matches jDisco behaviour)
         if (ctx.monitorActive) throw DiscoException("Illegal call of stop (class Continuous)")
         if (_pred != null) {
             if (_pred !== this) {
