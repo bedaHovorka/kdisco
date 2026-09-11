@@ -526,4 +526,78 @@ class StateEventTest {
             assertThat(abs(states[0] - 10.0 * resumes[0])).isLessThan(1e-6)
         }
     }
+
+    /**
+     * Cancelling a *bystander* notice during location invalidates the crossing just as much.
+     *
+     * Two guards cross inside the same step — `first` at t=10.02, `second` at t=10.05 — so `first`
+     * wins and its crossing is the one located. A `derivatives` call during that location
+     * reactivates `second`, which drops `second`'s notice and queues its turn at a speculative
+     * probe time, earlier than the crossing being located. `first`'s notice is untouched, so a
+     * liveness test that only looks at the winner sees nothing wrong: it schedules `first` at
+     * t=10.02 and leaves the variables there, and the scheduler then takes `second`'s earlier turn,
+     * running the clock backwards over state from the future.
+     *
+     * Swept across arming points like
+     * [cancellationAtAnyPointDuringCrossingLocationLeavesOneConsistentResume], asserting the same
+     * invariant for both processes: x(t) = 10t must hold at whatever time each one resumes.
+     */
+    @Test
+    fun cancellingABystanderNoticeDuringLocationLeavesEveryResumeConsistent() = runTest {
+        for (armAt in 1..60) {
+            val x = Variable(0.0)
+            val observed = mutableListOf<Pair<Double, Double>>() // time to state
+            var crossed = false
+            var callsAfterCrossed = 0
+            var fired = false
+            lateinit var second: Process
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                    if (!crossed) return
+                    callsAfterCrossed++
+                    if (callsAfterCrossed >= armAt && !fired) {
+                        fired = true
+                        Process.reactivate(second)
+                    }
+                }
+            }
+            val first = object : Process() {
+                override suspend fun actions() {
+                    waitCrossing {
+                        val g = 100.2 - x.state
+                        if (g <= 0.0) crossed = true
+                        g
+                    }
+                    observed.add(time() to x.state)
+                }
+            }
+            second = object : Process() {
+                override suspend fun actions() {
+                    waitCrossing { 100.5 - x.state }
+                    observed.add(time() to x.state)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            x.start()
+                            motion.start()
+                        }
+                    },
+                )
+                Process.activate(first)
+                Process.activate(second)
+            }
+
+            assertThat(observed).hasSize(2) // both waits ended exactly once
+            for ((t, state) in observed) {
+                assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
+            }
+        }
+    }
 }

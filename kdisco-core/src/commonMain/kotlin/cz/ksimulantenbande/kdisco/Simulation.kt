@@ -178,6 +178,14 @@ class Simulation internal constructor() {
                             } finally {
                                 if (!process._terminated) {
                                     process._state = ProcessState.TERMINATED
+                                    // Same cleanup terminate() performs, for the process that
+                                    // simply ran off the end of actions(). A surplus turn can
+                                    // outlive it — a notice releases the process while a delayed
+                                    // activate's turn is still queued — and a turn left behind
+                                    // still gets popped: it advances the clock and fires the
+                                    // beforeEvent hook for a process the scheduler will then
+                                    // refuse to relaunch.
+                                    context.dropWakeUpsOf(process)
                                     context.emit { SimulationEvent.ProcessTerminated(context.currentTime, process) }
                                 }
                             }

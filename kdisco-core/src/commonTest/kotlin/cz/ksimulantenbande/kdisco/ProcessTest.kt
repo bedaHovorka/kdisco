@@ -1250,4 +1250,47 @@ class ProcessTest {
         assertThat(sim.scheduledEventCount()).isEqualTo(0)
         assertThat(sim.activeProcessCount()).isEqualTo(0)
     }
+
+    /**
+     * A surplus turn must not outlive the process that was granted it.
+     *
+     * The waiter is released by its notice at t=5 with a delayed `activate`'s turn still queued for
+     * t=50, and then simply runs off the end of `actions()`. The scheduler refuses to relaunch a
+     * terminated process, so the t=50 event does nothing useful — but it is still popped, which
+     * advances the clock to t=50 and fires the `beforeEvent` hook there. A model that drives its
+     * own stopping rule from that hook, or reads `time()` after the run, sees 45 units of
+     * simulation that never happened.
+     *
+     * Completion now drops the process's remaining wake-ups, the same cleanup [Process.terminate]
+     * performs.
+     */
+    @Test
+    fun normalCompletionDropsASurplusTurnLeftForTheProcess() = runTest {
+        val hookTimes = mutableListOf<Double>()
+        var flag = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag } // returns at t=5, then actions() completes
+            }
+        }
+        val driver = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                Process.activate(waiter, delay = 49.0) // turn queued for t=50
+                hold(4.0)
+                flag = true // t=5
+            }
+        }
+
+        val sim = Simulation.create {
+            Process.activate(waiter)
+            Process.activate(driver)
+        }
+        sim.run(100.0) { hookTimes.add(sim.time()) }
+
+        assertThat(waiter.isTerminated()).isTrue()
+        // The run ends where the work does, at t=5 — not dragged to t=50 by a dead process's turn.
+        assertThat(sim.time()).isEqualTo(5.0)
+        assertThat(hookTimes.max()).isEqualTo(5.0)
+    }
 }

@@ -169,6 +169,15 @@ internal class ContinuousMonitor(
         }
         if (!anyCrossed) return false
 
+        // Everything from here on re-runs user [Continuous.derivatives] code — every bisection
+        // probe and the rollback below — and that code may call [Process.reactivate] or
+        // [Process.terminate], which drop crossing notices. Nothing can *add* one (registering a
+        // crossing wait is only reachable from a suspending process), so a changed count is an
+        // exact test for "a notice was cancelled during location", whether it is the winner or a
+        // bystander. A bystander matters just as much: its cancelling reactivate queued a turn at
+        // a speculative probe time, possibly earlier than the crossing located here.
+        val liveNoticesBefore = context.crossingNotices.size
+
         // Second pass: locate the crossing time for each crossing notice and keep the earliest.
         var bestNotice: CrossingNotice? = null
         var bestTime = Double.MAX_VALUE
@@ -183,26 +192,28 @@ internal class ContinuousMonitor(
 
         // Roll variable states back to the located crossing time.
         probeStateAt(stepStart, bestTime)
-        // Only now remove-and-test, in one step and with nothing between it and the schedule
-        // below. The first pass checked the registry, but everything since — every bisection probe
-        // in [locateCrossingTime] *and* the rollback immediately above — re-runs
-        // [Continuous.derivatives], which is allowed to call [Process.reactivate] or
-        // [Process.terminate] and so can cancel this very notice. Testing any earlier would leave
-        // the rollback's own derivatives calls outside the window.
-        if (!context.crossingNotices.remove(notice)) {
-            // Cancelled somewhere during location. The crossing is void — scheduling it anyway
-            // would hand the process a second, stale wake-up on top of the one reactivate already
-            // queued, landing at its next suspension point. The rollback above is void too: it
-            // left the variables at a crossing that is not happening, while the cancelling call
-            // queued its turn back at whatever probe time it ran at. Unwind to the step start —
-            // the last state this engine committed, and no later than any turn queued during the
-            // step — and let the scheduler's next integrateUntil carry the variables forward to
-            // whatever event it actually takes, so the clock and the state agree there.
+        // Only now test the registry, with nothing between it and the schedule below: the rollback
+        // immediately above runs derivatives too, so testing any earlier would leave its calls
+        // outside the window.
+        if (context.crossingNotices.size != liveNoticesBefore) {
+            // A notice was cancelled during location, so this crossing is not happening — not the
+            // winner's (it is void outright), and not a bystander's either, because the cancelling
+            // call queued its own turn back at whatever probe time it ran at, which can be earlier
+            // than the crossing located here. Scheduling now would either hand the winner a stale
+            // second wake-up or leave the variables at a later crossing than the turn the
+            // scheduler takes next, running the clock backwards over future state.
+            //
+            // Unwind to the step start instead — the last state this engine committed, and no
+            // later than any turn queued during the step — and leave every surviving notice
+            // registered. The scheduler's next integrateUntil carries the variables forward to
+            // whatever event it actually takes, so the clock and the state agree there, and the
+            // crossing is simply located again on a later step.
             probeStateAt(stepStart, stepStart)
             return true
         }
         // Scheduled unconditionally, for the same reason as checkWaitNotices (issue #73): a live
         // notice's wake-up may not be spent on an independent activate's.
+        context.crossingNotices.remove(notice)
         context.eventQueue.schedule(notice.process, bestTime)
         return true
     }
