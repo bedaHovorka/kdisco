@@ -7,6 +7,7 @@ import assertk.assertThat
 import assertk.assertions.*
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.seconds
 
 class ProcessTest {
 
@@ -108,7 +109,7 @@ class ProcessTest {
             override suspend fun actions() {
                 log.add("before")
                 terminate()
-                log.add("after")  // should NOT execute
+                log.add("after") // should NOT execute
             }
         }
         runSimulation(endTime = 10.0) {
@@ -223,13 +224,19 @@ class ProcessTest {
         val log = mutableListOf<String>()
         runSimulation(endTime = 10.0) {
             Process.activate(object : Process() {
-                override suspend fun actions() { log.add("A") }
+                override suspend fun actions() {
+                    log.add("A")
+                }
             })
             Process.activate(object : Process() {
-                override suspend fun actions() { log.add("B") }
+                override suspend fun actions() {
+                    log.add("B")
+                }
             })
             Process.activate(object : Process() {
-                override suspend fun actions() { log.add("C") }
+                override suspend fun actions() {
+                    log.add("C")
+                }
             })
         }
         assertThat(log).isEqualTo(listOf("A", "B", "C"))
@@ -249,13 +256,13 @@ class ProcessTest {
             val reactivator = object : Process() {
                 override suspend fun actions() {
                     hold(1.0)
-                    Process.reactivate(p)   // should be no-op: p is terminated
+                    Process.reactivate(p) // should be no-op: p is terminated
                 }
             }
             Process.activate(reactivator)
         }
         sim.run(10.0)
-        assertThat(actionsRunCount).isEqualTo(1)   // actions() must not run twice
+        assertThat(actionsRunCount).isEqualTo(1) // actions() must not run twice
     }
 
     @Test
@@ -278,7 +285,7 @@ class ProcessTest {
             Process.activate(reactivator)
         }
         sim.run(10.0)
-        assertThat(resumeCount).isEqualTo(1)       // resumed exactly once
+        assertThat(resumeCount).isEqualTo(1) // resumed exactly once
     }
 
     @Test
@@ -298,13 +305,13 @@ class ProcessTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(1.0)
-                    Process.reactivate(waiter)  // reactivate mid-waitUntil; clears stale notice
-                    flag = true                 // condition now true
+                    Process.reactivate(waiter) // reactivate mid-waitUntil; clears stale notice
+                    flag = true // condition now true
                 }
             })
         }
         sim.run(10.0)
-        assertThat(resumeCount).isEqualTo(1)       // must not execute twice
+        assertThat(resumeCount).isEqualTo(1) // must not execute twice
     }
 
     @Test
@@ -345,7 +352,7 @@ class ProcessTest {
             "afterHold-true-false-false",
             "reactivating-p-false-true-false",
             "afterReactivate-p-false-false-true",
-            "terminating-p-false-false-true"
+            "terminating-p-false-false-true",
         )
         assertThat(p.isTerminated()).isTrue()
     }
@@ -483,34 +490,38 @@ class ProcessTest {
     }
 
     @Test
-    fun duplicateActivateBeforeRunSchedulesOnlyOnce() = runTest {
-        var executions = 0
+    fun duplicateActivateBeforeRunSchedulesOnlyOnce() = runTest(timeout = 10.seconds) {
+        val times = mutableListOf<Double>()
         val p = object : Process() {
             override suspend fun actions() {
-                executions++
+                hold(1.0)
+                times.add(time())
             }
         }
         runSimulation(endTime = 10.0) {
             Process.activate(p)
-            Process.activate(p) // duplicate — must be a no-op
+            Process.activate(p, 0.5) // duplicate — must be a no-op, not an earlier schedule
         }
-        assertThat(executions).isEqualTo(1)
+        // Without the guard the second pending activation becomes an event at t=0.5 that
+        // resumes the process mid-hold, so it would complete at 0.5 instead of 1.0.
+        assertThat(times).isEqualTo(listOf(1.0))
+        assertThat(p.isTerminated()).isTrue()
     }
 
     @Test
-    fun duplicateActivateAtSameInstantResumesPassivatedProcessOnce() = runTest {
-        var resumes = 0
+    fun duplicateActivateAtSameInstantResumesPassivatedProcessOnce() = runTest(timeout = 10.seconds) {
+        val times = mutableListOf<Double>()
         val worker = object : Process() {
             override suspend fun actions() {
                 passivate()
-                resumes++
                 hold(1.0)
+                times.add(time())
             }
         }
         val resumer = object : Process() {
             override suspend fun actions() {
                 hold(2.0)
-                // Two resume paths firing at the same instant
+                // Two resume paths firing at the same instant — only one event may result
                 Process.activate(worker)
                 Process.activate(worker)
             }
@@ -519,7 +530,9 @@ class ProcessTest {
             Process.activate(worker)
             Process.activate(resumer)
         }
-        assertThat(resumes).isEqualTo(1)
+        // Without the guard the duplicate event at t=2 resumes the worker mid-hold,
+        // so it would finish at 2.0 instead of 3.0.
+        assertThat(times).isEqualTo(listOf(3.0))
         assertThat(worker.isTerminated()).isTrue()
     }
 
@@ -546,19 +559,21 @@ class ProcessTest {
     }
 
     @Test
-    fun activateOnRunningProcessIsNoOp() = runTest {
-        var executions = 0
+    fun activateOnRunningProcessIsNoOp() = runTest(timeout = 10.seconds) {
+        val times = mutableListOf<Double>()
         val p = object : Process() {
             override suspend fun actions() {
-                executions++
                 Process.activate(this) // self-activation while running — no-op
                 hold(1.0)
+                times.add(time())
             }
         }
         runSimulation(endTime = 10.0) {
             Process.activate(p)
         }
-        assertThat(executions).isEqualTo(1)
+        // Without the guard the self-activate queues an event at t=0 that cuts the hold
+        // short, so the process would finish at 0.0 instead of 1.0.
+        assertThat(times).isEqualTo(listOf(1.0))
         assertThat(p.isTerminated()).isTrue()
     }
 
@@ -680,6 +695,42 @@ class ProcessTest {
     }
 
     /**
+     * Several waiters whose conditions all become true in one event are released by a single
+     * [SimulationContext.checkWaitNotices] pass: each satisfied notice is removed from the
+     * registry, buffered, and every buffered process is scheduled — none is left behind for the
+     * next pass. This also drives both branches of the release buffer (first add, subsequent
+     * add) end to end.
+     */
+    @Test
+    fun multipleWaitersReleasedByOneEventAllResumeTogether() = runTest(timeout = 10.seconds) {
+        var flag = false
+        val wakeTimes = mutableListOf<Pair<String, Double>>()
+        val waiterA = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag }
+                wakeTimes.add("A" to time())
+            }
+        }
+        val waiterB = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag }
+                wakeTimes.add("B" to time())
+            }
+        }
+        runSimulation(endTime = 10.0) {
+            Process.activate(waiterA)
+            Process.activate(waiterB)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    flag = true // both conditions satisfied in one checkWaitNotices pass
+                }
+            })
+        }
+        assertThat(wakeTimes).isEqualTo(listOf("A" to 1.0, "B" to 1.0))
+    }
+
+    /**
      * `activate` on a terminated process must be a no-op. Before the guard it set the process back
      * to SCHEDULED — so `isTerminated()` started reporting false for a dead process — and queued an
      * event the scheduler could only discard.
@@ -785,6 +836,88 @@ class ProcessTest {
         }
         assertThat(resumed).isFalse()
         assertThat(conditionEvaluations).isEqualTo(evaluationsJustAfterTerminate)
+    }
+
+    /**
+     * Pins the hazard [SimulationContext.checkWaitNotices] documents: [Condition.test] is user
+     * code evaluated while `waitNotices` is being iterated, so a condition that mutates the
+     * registry — here by reactivating another waiter — can throw ConcurrentModificationException,
+     * which propagates out of [Simulation.run] and aborts the run. Conditions are expected to be
+     * pure; this test documents what happens when one is not.
+     *
+     * Whether the iterator detects the structural change is a stdlib property, not the engine's:
+     * the JVM and native list implementations track modification counts and throw, the JS one
+     * does not — there the run completes with the mutated registry instead. The test probes the
+     * platform and pins whichever outcome it defines, so a regression in either direction (a
+     * swallowed CME, or a spurious one) fails.
+     *
+     * The condition mutates only once, and only once the whole registry has parked — waiterB
+     * and waiterC are both [isWaiting]. An every-evaluation mutation would reactivate waiterB
+     * forever at one simulation instant on a platform that does not detect the change — the run
+     * must stay bounded wherever it does not abort — and the gate also keeps the first
+     * (immediate, non-iterating) evaluation harmless, landing the mutation in a post-event
+     * registry scan. The gate makes the structural change mid-list by construction: waiterB's
+     * notice is registered before waiterC's, so with the whole registry parked an element always
+     * trails the removal and the iterator necessarily advances past it — the step that observes
+     * the change.
+     */
+    @Test
+    fun waitConditionMutatingTheRegistryThrowsConcurrentModificationError() = runTest(timeout = 10.seconds) {
+        // Probe the platform's list: does its iterator detect concurrent structural modification?
+        val detectsCme = try {
+            val list = mutableListOf(1, 2, 3)
+            val iter = list.iterator()
+            list.removeAt(1)
+            iter.next()
+            false
+        } catch (e: ConcurrentModificationException) {
+            true
+        }
+
+        var thrown: Throwable? = null
+        lateinit var waiterB: Process
+        var mutated = false
+        val waiterC = object : Process() {
+            override suspend fun actions() {
+                waitUntil { false }
+            }
+        }
+        val waiterA = object : Process() {
+            override suspend fun actions() {
+                waitUntil {
+                    // Mutates waitNotices while checkWaitNotices is iterating it — once only
+                    // (a platform that does not detect the change still terminates the run),
+                    // and only once the whole registry is parked, so the mutation happens
+                    // inside a post-event scan with waiterC's notice trailing waiterB's.
+                    if (!mutated && waiterB.isWaiting() && waiterC.isWaiting()) {
+                        mutated = true
+                        Process.reactivate(waiterB)
+                    }
+                    false
+                }
+            }
+        }
+        waiterB = object : Process() {
+            override suspend fun actions() {
+                waitUntil { false }
+            }
+        }
+        try {
+            runSimulation(endTime = 20.0) {
+                Process.activate(waiterA)
+                Process.activate(waiterB)
+                Process.activate(waiterC)
+                Process.activate(object : Process() {
+                    override suspend fun actions() {
+                        hold(1.0) // any later event makes the post-event check re-iterate the registry
+                    }
+                })
+            }
+        } catch (e: ConcurrentModificationException) {
+            thrown = e
+        }
+        // JVM/native abort the run; JS does not detect the change and completes it.
+        assertThat(thrown != null).isEqualTo(detectsCme)
     }
 
     /**

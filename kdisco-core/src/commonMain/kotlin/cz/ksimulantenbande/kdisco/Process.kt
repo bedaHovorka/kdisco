@@ -70,7 +70,7 @@ abstract class Process : Link() {
     internal var continuation: kotlin.coroutines.Continuation<Unit>? = null
 
     @Suppress("ktlint:standard:backing-property-naming", "VariableNaming")
-    internal var _terminated: Boolean = false
+    internal val _terminated: Boolean get() = _state == ProcessState.TERMINATED
 
     @Suppress("ktlint:standard:backing-property-naming", "VariableNaming")
     internal var _state: ProcessState = ProcessState.IDLE
@@ -90,10 +90,11 @@ abstract class Process : Link() {
      * The common scaffold behind every kDisco suspension point.
      *
      * Records [state] and the resume continuation, then runs [register] — which queues an event or
-     * adds a notice. [register] deliberately runs *before* the cancellation handler is installed,
-     * matching the order every parking primitive used when each had its own copy of this block.
-     * The handler marks the process terminated and calls [onCancel] to drop whatever [register]
-     * created, so a process cancelled at end of run leaves no stale queue entry or notice behind.
+     * adds a notice. [register] runs *before* the cancellation handler is installed. The handler
+     * marks the process terminated and calls [onCancel], which drops whatever this parking site
+     * depends on — what [register] created, or a notice registered outside the re-park loop and
+     * kept across re-parks (see [awaitCrossing]) — so a process cancelled at end of run leaves no
+     * stale queue entry or notice behind.
      *
      * `inline` with `crossinline` lambdas is required, not cosmetic: a plain `suspend` wrapper
      * would add a continuation object and an extra `resumeWith` hop to every [hold], which is the
@@ -111,7 +112,6 @@ abstract class Process : Link() {
             cont.invokeOnCancellation {
                 continuation = null
                 _state = ProcessState.TERMINATED
-                _terminated = true
                 onCancel()
             }
         }
@@ -138,7 +138,6 @@ abstract class Process : Link() {
     suspend fun passivate() {
         park(
             state = ProcessState.PASSIVATED,
-            // Not scheduled in the event queue — waits for reactivate()
             register = { context.emit { SimulationEvent.ProcessPassivated(context.currentTime, this@Process) } },
             onCancel = {},
         )
@@ -161,8 +160,10 @@ abstract class Process : Link() {
      * Must only be called from within [actions] (i.e., from a running process).
      */
     suspend fun waitUntil(condition: Condition) {
+        // One notice object per wait, re-registered on each re-park — the invariant is that at
+        // most one live notice exists per process, so the condition can never deliver two wake-ups.
+        val notice = WaitNotice(this, condition)
         while (!condition.test()) {
-            val notice = WaitNotice(this, condition)
             park(
                 state = ProcessState.WAITING,
                 register = { context.waitNotices.add(notice) },
@@ -170,8 +171,9 @@ abstract class Process : Link() {
             )
             // The notice is removed by checkWaitNotices at the instant it fires. If this resume
             // came from anywhere else — an independent Process.activate, a reactivate — the notice
-            // is still registered and has to be dropped here, or the next loop iteration would
-            // leave two notices for this process and the condition would deliver two wake-ups.
+            // is still registered and has to be dropped here, or the next re-park would add it to
+            // the registry a second time (a duplicate list entry) and the condition would later
+            // deliver two wake-ups.
             context.waitNotices.remove(notice)
         }
     }
@@ -227,7 +229,11 @@ abstract class Process : Link() {
      * crossing notice and resumes the process at the current time; [Process.terminate] drops it
      * without resuming. [Process.activate] does neither — it queues a turn, which this wait absorbs
      * by re-parking while its notice is still registered, so the process still resumes at the
-     * crossing and nowhere else.
+     * crossing and nowhere else. That holds only *while the notice is registered*: if the notice
+     * fires with an activate-queued turn still outstanding — e.g. a crossing located before a
+     * delayed `activate`'s event is taken — the wait ends at the crossing and the outstanding turn
+     * survives as a surplus resume at the process's next suspension point, the same way a
+     * confirmed-true [waitUntil] keeps its turn.
      *
      * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
      *   0.0 disables the early-out and relies on the bisection bracket collapsing to
@@ -281,7 +287,11 @@ abstract class Process : Link() {
      * [Process.terminate] removes the notice without resuming. Either way the wait is not
      * silently re-armed, so there is no second permanent-park route via these calls.
      * [Process.activate] is not a cancellation: the turn it queues is absorbed by the re-park loop
-     * while the level notice is still registered, so the wait still ends at the crossing.
+     * while the level notice is still registered, so the wait still ends at the crossing. One
+     * exception, by design: if the guard becomes satisfied in the very event that issues the
+     * activate, the post-event level re-test fires the notice too — the wait ends, and the turn
+     * survives as a surplus resume at the process's next suspension point, exactly like a
+     * confirmed-true [waitUntil].
      *
      * **Known limitation**: as with [waitCrossing], the guard is compared at the start and end of
      * each accepted integration step (plus the post-step/post-event level re-test). A guard that
@@ -343,15 +353,13 @@ abstract class Process : Link() {
      */
     open fun terminate() {
         _state = ProcessState.TERMINATED
-        _terminated = true
         context.emit { SimulationEvent.ProcessTerminated(context.currentTime, this) }
         context.eventQueue.remove(this)
         continuation = null
         // All three wake-up sources must be dropped. Leaving a wait notice behind would have its
         // condition re-evaluated after every event and every integration step for the rest of the
         // run, repeatedly scheduling a dead process.
-        context.waitNotices.removeAll { it.process === this@Process }
-        context.crossingNotices.removeAll { it.process === this@Process }
+        context.removeNoticesOf(this)
         throw ProcessTerminatedException()
     }
 
@@ -445,9 +453,13 @@ abstract class Process : Link() {
          * - **[waitUntil]**: the turn re-enters the condition loop. If the condition is confirmed
          *   true the wait ends and the turn survives as a genuine extra resume — the case issue #73
          *   describes. If the condition is still false the loop re-parks and the turn is absorbed.
-         * - **[waitCrossing] / [waitUntilCrossing]**: the turn is always absorbed. These are
-         *   root-found waits with no condition to re-test, so they re-park while their notice is
-         *   still registered; the process resumes at the crossing and nowhere else.
+         * - **[waitCrossing] / [waitUntilCrossing]**: the turn is absorbed while the notice is
+         *   still registered. These are root-found waits with no condition to re-test, so they
+         *   re-park and the process resumes at the crossing and nowhere else. If the notice fires
+         *   with the turn still outstanding — a [waitUntilCrossing] guard satisfied in the same
+         *   event, or a crossing located before a delayed turn is taken — the wait ends and the
+         *   turn survives as a surplus resume at the next suspension point, like the confirmed
+         *   [waitUntil] case above.
          *
          * Use [reactivate] when the intent is to *cancel* the pending wait and resume now.
          *
@@ -481,15 +493,17 @@ abstract class Process : Link() {
          * rescheduled at the current time (no duplicate event is created).
          * If [process] is parked in [waitUntil], [waitCrossing] or [waitUntilCrossing], the pending
          * notice is dropped and the process resumes now — this, not [activate], is the call that
-         * *cancels* a wait.
+         * *cancels* a wait. One nuance: a [waitUntil] whose condition is still false is not over
+         * yet — the resumed process re-tests the condition and re-parks (the dropped notice is
+         * replaced by a fresh one). The crossing waits have nothing to re-test, so for them the
+         * wait truly ends here.
          */
         fun reactivate(process: Process) {
             if (process._terminated) return
             val ctx = process.context
             process._state = ProcessState.SCHEDULED
             ctx.emit { SimulationEvent.ProcessReactivated(ctx.currentTime, process) }
-            ctx.waitNotices.removeAll { it.process === process } // clear stale wait-until notices
-            ctx.crossingNotices.removeAll { it.process === process } // clear stale crossing notices
+            ctx.removeNoticesOf(process) // clear stale wait and crossing notices
             ctx.eventQueue.remove(process) // prevent duplicate if already scheduled
             ctx.eventQueue.schedule(process, ctx.currentTime)
         }

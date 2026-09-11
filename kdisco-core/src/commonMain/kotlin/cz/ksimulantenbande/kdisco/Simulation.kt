@@ -172,7 +172,6 @@ class Simulation internal constructor() {
                             } finally {
                                 if (!process._terminated) {
                                     process._state = ProcessState.TERMINATED
-                                    process._terminated = true
                                     context.emit { SimulationEvent.ProcessTerminated(context.currentTime, process) }
                                 }
                             }
