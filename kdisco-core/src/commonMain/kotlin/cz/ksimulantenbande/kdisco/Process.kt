@@ -489,15 +489,18 @@ abstract class Process : Link() {
         /**
          * Schedules a process to begin execution after an optional delay.
          *
-         * **No-op** when [process] is already running, already has an event in the queue
-         * (mid-[hold], or activated earlier at this or a later time), or has terminated. The
-         * existing schedule wins and no duplicate event is created. To move an already-scheduled
-         * process to the current time, use [reactivate].
+         * **No-op** when [process] is already running, already has a turn of its own (mid-[hold],
+         * or activated earlier at this or a later time), or has terminated. The existing schedule
+         * wins and no duplicate event is created. To move an already-scheduled process to the
+         * current time, use [reactivate].
          *
-         * That guard is on the process's own queued turn, not on its state: a process released
-         * from a wait while an earlier activation's turn was still queued is parked at its next
-         * suspension point with that turn outstanding, and activating it again is still a
-         * duplicate. See [hasOwnTurn].
+         * "A turn of its own" is narrower than "has an event in the queue", in both directions.
+         * A process released from a wait while an earlier activation's turn was still queued is
+         * parked at its next suspension point with that turn outstanding, so activating it again
+         * is a duplicate even though its state no longer says so. Conversely a process whose
+         * notice has fired has an event queued that belongs to the *wait*, not to it, so an
+         * activate then is not a duplicate — which is the exception spelled out below. See
+         * [hasOwnTurn].
          *
          * A process parked in [waitUntil], [waitCrossing] or [waitUntilCrossing] is deliberately
          * **not** covered by that guard. Such a process has no turn of its own — its wake-up lives

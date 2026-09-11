@@ -32,23 +32,37 @@ internal class EventQueue {
     private var normalCounter: Long = 0 // FIFO: ascending — lower order runs first
     private var priorityCounter: Long = -1 // LIFO: descending — higher (less negative) order runs first
 
+    /**
+     * Bumped by every structural change to the queue. Lets a caller ask "did anything schedule or
+     * cancel while I was running code I do not control?" without diffing the queue — [size] cannot
+     * answer it, because a [Process.reactivate] both removes and adds.
+     *
+     * Used by [ContinuousMonitor] to detect user [Continuous.derivatives] and guard code queueing
+     * turns at speculative probe times during crossing location.
+     */
+    var mutations: Long = 0
+        private set
+
     fun schedule(process: Process, time: Double, priority: Boolean = false) {
         val order = if (priority) priorityCounter-- else normalCounter++
         val event = ScheduledEvent(process, time, order)
         val index = findInsertionPoint(time, order)
         events.add(index, event)
         process.queuedEvents++
+        mutations++
     }
 
     fun remove(process: Process) {
         events.removeAll { it.process === process }
         process.queuedEvents = 0
+        mutations++
     }
 
     fun removeFirst(): ScheduledEvent? {
         if (events.isEmpty()) return null
         val event = events.removeAt(0)
         event.process.queuedEvents--
+        mutations++
         return event
     }
 
@@ -68,6 +82,7 @@ internal class EventQueue {
     fun clear() {
         for (event in events) event.process.queuedEvents = 0
         events.clear()
+        mutations++
     }
 
     fun peek(): ScheduledEvent? = events.firstOrNull()

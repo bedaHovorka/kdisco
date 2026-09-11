@@ -131,7 +131,12 @@ class Simulation internal constructor() {
 
                 // Integrate continuous processes up to the next event boundary (or endTime).
                 if (context.firstCont != null) {
-                    context.monitor.integrateUntil(integrateTo)
+                    // A crossing-location pass can be invalidated by user code queueing a turn at
+                    // a speculative probe time; it then unwinds the variables to the start of that
+                    // step and reports it here. `integrateTo` was computed from a peek that
+                    // predates the new turn, and the clock has moved backwards, so restart the
+                    // iteration and recompute the boundary rather than popping against a stale one.
+                    if (context.monitor.integrateUntil(integrateTo)) continue
                 }
 
                 // If no more discrete events: check if integrateUntil added events via

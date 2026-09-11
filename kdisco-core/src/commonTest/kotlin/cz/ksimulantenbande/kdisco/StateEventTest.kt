@@ -600,4 +600,145 @@ class StateEventTest {
             }
         }
     }
+
+    /**
+     * A guard that cancels its own wait during the endpoint evaluation must not still be located.
+     *
+     * The first pass evaluates every crossed guard at the step end, and a guard is user code: it
+     * can call [Process.reactivate]. Doing so drops its own notice *after* the pass has already
+     * checked the registry for it and queues the turn at the step end, yet the notice is still in
+     * the crossing list the second pass works from — so the crossing was root-found and scheduled
+     * anyway, on top of the reactivate's turn. Measured: resumes at t=10.02 (the stale crossing)
+     * and t=11.0, where only t=11.0 is owed.
+     *
+     * This is why the invalidation baseline is taken at the very top of the pass, before the first
+     * guard runs, rather than between the two passes.
+     */
+    @Test
+    fun aGuardCancellingItsOwnWaitAtEndpointEvaluationIsNotStillScheduled() = runTest {
+        val x = Variable(0.0)
+        val resumes = mutableListOf<Double>()
+        val states = mutableListOf<Double>()
+        var fired = false
+        lateinit var waiter: Process
+
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 10.0
+            }
+        }
+        waiter = object : Process() {
+            override suspend fun actions() {
+                waitCrossing {
+                    val g = 100.2 - x.state
+                    if (g <= 0.0 && !fired) {
+                        fired = true
+                        Process.reactivate(waiter)
+                    }
+                    g
+                }
+                resumes.add(time())
+                states.add(x.state)
+                passivate()
+                resumes.add(time()) // only a stale second wake-up can get here
+                states.add(x.state)
+            }
+        }
+
+        runSimulation(endTime = 60.0) {
+            dtMax = 1.0
+            Process.activate(
+                object : Process() {
+                    override suspend fun actions() {
+                        x.start()
+                        motion.start()
+                    }
+                },
+            )
+            Process.activate(waiter)
+        }
+
+        assertThat(fired).isTrue()
+        assertThat(resumes).hasSize(1)
+        // Resumed by the reactivate at the step end, with the state to match.
+        assertThat(abs(states[0] - 10.0 * resumes[0])).isLessThan(1e-6)
+    }
+
+    /**
+     * The process woken during location need not own a crossing notice at all.
+     *
+     * A `derivatives` probe can reactivate a passivated helper, queueing its turn at a speculative
+     * probe time without touching the crossing registry. The located crossing is then scheduled
+     * and the variables left at it, and the scheduler takes the helper's earlier turn holding state
+     * from the future — measured at t=10.0 with x=100.2, the value at t=10.02.
+     *
+     * This is the finding that moved the invalidation test off the notice registry and onto the
+     * event queue's mutation count. It also needs the scheduler to recompute its event boundary
+     * after an aborted pass: the `ticker` below keeps a future event queued so the run enters
+     * integration with one already peeked, which is the case where the boundary goes stale.
+     */
+    @Test
+    fun reactivatingAnUnrelatedProcessDuringLocationLeavesEveryResumeConsistent() = runTest {
+        for (armAt in 1..60) {
+            val x = Variable(0.0)
+            val observed = mutableListOf<Pair<Double, Double>>() // time to state
+            var crossed = false
+            var callsAfterCrossed = 0
+            var fired = false
+            lateinit var helper: Process
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                    if (!crossed) return
+                    callsAfterCrossed++
+                    if (callsAfterCrossed >= armAt && !fired) {
+                        fired = true
+                        Process.reactivate(helper)
+                    }
+                }
+            }
+            helper = object : Process() {
+                override suspend fun actions() {
+                    passivate()
+                    observed.add(time() to x.state)
+                }
+            }
+            val waiter = object : Process() {
+                override suspend fun actions() {
+                    waitCrossing {
+                        val g = 100.2 - x.state
+                        if (g <= 0.0) crossed = true
+                        g
+                    }
+                    observed.add(time() to x.state)
+                }
+            }
+            // Keeps a future event queued, so run() enters integration having already peeked one.
+            val ticker = object : Process() {
+                override suspend fun actions() {
+                    hold(50.0)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            x.start()
+                            motion.start()
+                        }
+                    },
+                )
+                Process.activate(helper)
+                Process.activate(waiter)
+                Process.activate(ticker)
+            }
+
+            for ((t, state) in observed) {
+                assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
+            }
+        }
+    }
 }
