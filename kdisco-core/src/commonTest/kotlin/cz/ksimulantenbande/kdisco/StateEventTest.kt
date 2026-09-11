@@ -400,6 +400,7 @@ class StateEventTest {
     fun crossingCancelledByDerivativesDuringRootFindingIsNotStillScheduled() = runTest {
         val x = Variable(0.0)
         val resumes = mutableListOf<Double>()
+        var stateOnResume = Double.NaN
         var crossed = false
         var fired = false
         lateinit var waiter: Process
@@ -423,6 +424,7 @@ class StateEventTest {
                     g
                 }
                 resumes.add(time())
+                stateOnResume = x.state
                 passivate()
                 resumes.add(time()) // only a stale second wake-up can get here
             }
@@ -436,5 +438,10 @@ class StateEventTest {
         assertThat(fired).isTrue() // the reactivate really did run inside root-finding
         // Resumed once, by the reactivate — not a second time by the cancelled crossing.
         assertThat(resumes).hasSize(1)
+        // The clock and the variable agree on resume. The reactivate queued its turn at the step
+        // start (t=9, x=90), so leaving x at the abandoned crossing near t=10 would resume the
+        // process at t=9 holding a t=10 state.
+        assertThat(abs(resumes[0] - 9.0)).isLessThan(1e-9)
+        assertThat(abs(stateOnResume - 90.0)).isLessThan(1e-6)
     }
 }

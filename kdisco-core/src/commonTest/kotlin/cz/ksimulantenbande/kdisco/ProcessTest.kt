@@ -1211,4 +1211,43 @@ class ProcessTest {
         }
         assertThat(observed).isEqualTo("active=true passivated=true waiting=false queued=1")
     }
+
+    /**
+     * A process whose only turn was scheduled past `endTime` never launches, so nothing cancels it
+     * — it has to be brought to a terminal state by the end-of-run cleanup instead.
+     *
+     * Both shapes are covered. `first`'s event is the one the scheduler pops and rejects for being
+     * past `endTime`; `second`'s is still queued behind it and is only cleared. Before the cleanup
+     * covered them, each reported `isActive()` for a turn that could never come — the simulation
+     * cannot be run twice — while `scheduledEventCount()` said zero, and a later `activate` would
+     * have refused them as already holding a turn.
+     */
+    @Test
+    fun processesLeftUnrunPastEndTimeReachATerminalState() = runTest {
+        var ran = false
+        val first = object : Process() {
+            override suspend fun actions() {
+                ran = true
+            }
+        }
+        val second = object : Process() {
+            override suspend fun actions() {
+                ran = true
+            }
+        }
+
+        val sim = Simulation.create {
+            Process.activate(first, delay = 20.0)
+            Process.activate(second, delay = 30.0)
+        }
+        sim.run(10.0)
+
+        assertThat(ran).isFalse() // neither ever started
+        assertThat(first.isTerminated()).isTrue()
+        assertThat(second.isTerminated()).isTrue()
+        assertThat(first.isActive()).isFalse()
+        assertThat(second.isActive()).isFalse()
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
+    }
 }

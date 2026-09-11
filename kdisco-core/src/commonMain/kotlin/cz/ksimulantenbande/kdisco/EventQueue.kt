@@ -55,6 +55,13 @@ internal class EventQueue {
     fun isEmpty(): Boolean = events.isEmpty()
 
     /**
+     * The process of every queued event, in queue order and with repeats — a process holding two
+     * events appears twice. Used by [Simulation.run] at end of run to find the processes whose
+     * turns will never be delivered.
+     */
+    fun scheduledProcesses(): List<Process> = events.map { it.process }
+
+    /**
      * Drops every scheduled event. Called once when [Simulation.run] returns: the run is over and
      * cannot be restarted, so anything still queued is unreachable.
      */

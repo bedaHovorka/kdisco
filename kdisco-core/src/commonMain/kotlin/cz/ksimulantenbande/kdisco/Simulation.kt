@@ -144,7 +144,13 @@ class Simulation internal constructor() {
 
                 // Now pop and process the event.
                 val event = context.eventQueue.removeFirst() ?: break
-                if (event.time > endTime) break
+                if (event.time > endTime) {
+                    // Put it back before stopping. Its process is in exactly the position of the
+                    // ones still queued behind it — holding a turn the run will never deliver —
+                    // and the cleanup below only sees what is in the queue.
+                    context.eventQueue.schedule(event.process, event.time)
+                    break
+                }
 
                 context.currentTime = event.time
                 val process = event.process
@@ -198,6 +204,16 @@ class Simulation internal constructor() {
             // run is over (a Simulation cannot be run twice), and leaving them would make
             // scheduledEventCount() and activeProcessCount() report outstanding work that can
             // never be delivered.
+            //
+            // Their owners need the same treatment. A process that actually started was cancelled
+            // by simScope.cancel() above and is already TERMINATED, but one whose only turn was
+            // scheduled past endTime never launched, so nothing cancelled it and it is still
+            // SCHEDULED — reporting isActive() for a turn that cannot come, and refusing a later
+            // activate as a duplicate. Cancellation terminates silently (no ProcessTerminated is
+            // emitted for a process the run never activated), and so does this.
+            for (process in context.eventQueue.scheduledProcesses()) {
+                if (!process._terminated) process._state = ProcessState.TERMINATED
+            }
             context.eventQueue.clear()
         }
         return true
