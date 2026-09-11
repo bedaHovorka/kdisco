@@ -131,11 +131,10 @@ class Simulation internal constructor() {
 
                 // Integrate continuous processes up to the next event boundary (or endTime).
                 if (context.firstCont != null) {
-                    // A crossing-location pass can be invalidated by user code queueing a turn at
-                    // a speculative probe time; it then unwinds the variables to the start of that
-                    // step and reports it here. `integrateTo` was computed from a peek that
-                    // predates the new turn, and the clock has moved backwards, so restart the
-                    // iteration and recompute the boundary rather than popping against a stale one.
+                    // A step can be invalidated by user code queueing or dropping a turn, in which
+                    // case `integrateTo` was computed from a peek that predates it — and the clock
+                    // may have moved backwards with the unwind. Restart the iteration and
+                    // recompute the boundary rather than popping against a stale one.
                     if (context.monitor.integrateUntil(integrateTo)) continue
                 }
 

@@ -115,9 +115,13 @@ internal class SimulationContext {
      * is scheduled in the event queue at the current simulation time.
      *
      * Called after each discrete event and after each continuous integration step.
+     *
+     * @return how many processes were scheduled — one per released notice. The
+     *   [ContinuousMonitor] compares this against [EventQueue.mutations] to tell its own
+     *   scheduling apart from anything a condition did as a side effect.
      */
-    internal fun checkWaitNotices() {
-        val released = takeSatisfied(waitNotices) { it.condition.test() } ?: return
+    internal fun checkWaitNotices(): Int {
+        val released = takeSatisfied(waitNotices) { it.condition.test() } ?: return 0
         for (notice in released) {
             // Scheduled unconditionally. A satisfied notice and a queued event are two distinct
             // resumes owed to the same process (issue #73): the notice says "your wait is over",
@@ -125,8 +129,9 @@ internal class SimulationContext {
             // stand in for the notice's wake-up silently spends one intent on the other. A surplus
             // event is harmless — Simulation.run resumes a stored continuation when there is one
             // and refuses to relaunch a terminated process.
-            eventQueue.schedule(notice.process, currentTime)
+            eventQueue.schedule(notice.process, currentTime, noticeRelease = true)
         }
+        return released.size
     }
 
     /**
@@ -141,16 +146,16 @@ internal class SimulationContext {
      * a discrete state change, or a stalled variable already past the threshold) still
      * releases the waiting process.
      *
-     * @return true if at least one notice fired (integration should stop so the scheduler
-     *   can process the newly-scheduled event), false otherwise.
+     * @return how many processes were scheduled — one per released notice. Non-zero means
+     *   integration should stop so the scheduler can process the newly-scheduled events.
      */
-    internal fun checkLevelCrossings(): Boolean {
-        val released = takeSatisfied(crossingNotices) { it.levelTriggered && it.guard() <= 0.0 } ?: return false
+    internal fun checkLevelCrossings(): Int {
+        val released = takeSatisfied(crossingNotices) { it.levelTriggered && it.guard() <= 0.0 } ?: return 0
         for (notice in released) {
             // Unconditional, for the same reason as checkWaitNotices (issue #73).
-            eventQueue.schedule(notice.process, currentTime)
+            eventQueue.schedule(notice.process, currentTime, noticeRelease = true)
         }
-        return true
+        return released.size
     }
 
     /**

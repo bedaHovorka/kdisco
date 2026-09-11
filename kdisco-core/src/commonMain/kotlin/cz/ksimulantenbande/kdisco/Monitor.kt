@@ -95,7 +95,7 @@ internal class ContinuousMonitor(
 
                 val outcome = settleStep(stepStart, guardsBefore, queueMutationsBefore)
                 if (outcome != StepOutcome.CONTINUE) {
-                    aborted = outcome == StepOutcome.ABORTED
+                    aborted = outcome == StepOutcome.RESTART
                     break
                 }
             }
@@ -130,24 +130,28 @@ internal class ContinuousMonitor(
         if (located != StepOutcome.CONTINUE) return located
         if (context.eventQueue.mutations != queueMutationsBefore) {
             probeStateAt(stepStart, stepStart)
-            return StepOutcome.ABORTED
+            return StepOutcome.RESTART
         }
-        // Stop integration if a wait notice or a level-triggered crossing notice was satisfied, so
-        // the scheduler processes the newly-scheduled event with states that match currentTime.
+        // Re-test the wait and level-crossing registries at the accepted step end.
         //
-        // The conditions and guards those checks evaluate are user code too, and one that is *not*
-        // satisfied can still schedule: an unsatisfied waitUntil condition reactivating a helper
-        // leaves both notice registries the same size, so the check reports nothing fired while a
-        // turn now sits in the queue at the current time. Integrating on past it would leave the
-        // scheduler to resume that process holding state from the future.
+        // The conditions and guards these evaluate are user code as well, and one that is *not*
+        // satisfied can still schedule — a waitUntil condition reactivating a helper leaves both
+        // registries the same size, so counting released notices alone reports nothing. Comparing
+        // the queue mutations against the number of releases separates the engine's own scheduling
+        // (exactly one event per release) from anything user code did alongside it.
         //
-        // This is STOP, not ABORTED: these run at the accepted step end, so anything they queue is
-        // at currentTime or later, and the variables already match currentTime. Nothing to unwind —
-        // integration simply must not advance beyond it.
+        // A release alone is STOP: it is scheduled at the current time and the variables already
+        // match it, so the boundary the scheduler peeked still names the earliest event. A user
+        // mutation is RESTART, because it is not bounded that way — a delayed activate queues past
+        // the current time but possibly before that boundary, and a terminate can remove the very
+        // event the boundary came from. Either way the scheduler has to recompute it before
+        // popping. No unwind: the accepted step-end state is valid.
         val mutationsBeforeNotices = context.eventQueue.mutations
-        val noticesFired = postStepNoticesFired()
-        val noticesScheduled = context.eventQueue.mutations != mutationsBeforeNotices
-        return if (noticesFired || noticesScheduled) StepOutcome.STOP else StepOutcome.CONTINUE
+        val released = context.checkWaitNotices() + context.checkLevelCrossings()
+        if (context.eventQueue.mutations - mutationsBeforeNotices != released.toLong()) {
+            return StepOutcome.RESTART
+        }
+        return if (released > 0) StepOutcome.STOP else StepOutcome.CONTINUE
     }
 
     /** Saves each active [Variable]'s pre-step state and clears its rate for the coming step. */
@@ -174,19 +178,6 @@ internal class ContinuousMonitor(
     }
 
     /**
-     * Re-tests the wait and level-crossing registries after an accepted step.
-     *
-     * @return true if anything fired, meaning integration must stop so the scheduler can take the
-     *   newly-scheduled event with variable states that match [SimulationContext.currentTime].
-     */
-    private fun postStepNoticesFired(): Boolean {
-        val noticesBefore = context.waitNotices.size
-        context.checkWaitNotices()
-        val levelFired = context.checkLevelCrossings()
-        return levelFired || context.waitNotices.size < noticesBefore
-    }
-
-    /**
      * Samples every registered [CrossingNotice.guard] at the current state, paired with the
      * notice itself, or returns null when there are no crossing notices (zero-overhead fast
      * path). Pairing by object reference (rather than list position) keeps the "before" value
@@ -210,7 +201,7 @@ internal class ContinuousMonitor(
      * root-finding probes were running, in which case nothing is scheduled and the variables are
      * unwound to the step start instead.
      *
-     * @return [StepOutcome.STOP] if a crossing fired (integration must stop), [StepOutcome.ABORTED] if
+     * @return [StepOutcome.STOP] if a crossing fired (integration must stop), [StepOutcome.RESTART] if
      *   the pass was invalidated and the variables were unwound to [stepStart], or [StepOutcome.CONTINUE].
      */
     private fun locateCrossings(
@@ -253,16 +244,16 @@ internal class ContinuousMonitor(
             //
             // Unwind to the step start instead — the last state this engine committed, and no
             // later than any turn queued during the step — and leave every surviving notice
-            // registered. [StepOutcome.ABORTED] makes the scheduler recompute its event boundary and
+            // registered. [StepOutcome.RESTART] makes the scheduler recompute its event boundary and
             // integrate forward to whatever event it actually takes, so the clock and the state
             // agree there, and this crossing is simply located again on a later step.
             probeStateAt(stepStart, stepStart)
-            return StepOutcome.ABORTED
+            return StepOutcome.RESTART
         }
         // Scheduled unconditionally, for the same reason as checkWaitNotices (issue #73): a live
         // notice's wake-up may not be spent on an independent activate's.
         context.crossingNotices.remove(notice)
-        context.eventQueue.schedule(notice.process, bestTime)
+        context.eventQueue.schedule(notice.process, bestTime, noticeRelease = true)
         return StepOutcome.STOP
     }
 
@@ -392,9 +383,13 @@ internal enum class StepOutcome {
     STOP,
 
     /**
-     * User code queued or dropped a turn at a speculative time during the step, so the step is
-     * void. The variables were unwound to the step start and nothing was scheduled; the caller
-     * must restart the scheduler loop and recompute its event boundary before popping anything.
+     * User code queued or dropped a turn, so the boundary the scheduler peeked before integrating
+     * no longer names the earliest event. The caller must restart its loop and recompute that
+     * boundary before popping anything.
+     *
+     * When the turn was queued *during* the step, at a speculative time, the variables have also
+     * been unwound to the step start and the step is void. When it came from the post-step notice
+     * checks the accepted step-end state stands and only the boundary is stale.
      */
-    ABORTED,
+    RESTART,
 }

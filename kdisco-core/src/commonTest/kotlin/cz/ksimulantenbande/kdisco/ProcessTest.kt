@@ -1293,4 +1293,58 @@ class ProcessTest {
         assertThat(sim.time()).isEqualTo(5.0)
         assertThat(hookTimes.max()).isEqualTo(5.0)
     }
+
+    /**
+     * A waiting process can own a turn, and `activate` has to see it.
+     *
+     * The usual reading is that [ProcessState.WAITING] means "no turn of its own — its wake-up
+     * belongs to the notice registry", which is why activating a waiting process grants an
+     * independent turn rather than being a duplicate. Sequential waits break that reading: the
+     * process leaves the first wait via its notice while a delayed `activate`'s turn is still
+     * queued for t=50, then enters a second wait. It is now waiting *and* holding a turn, and a
+     * state-only test queues a second one.
+     *
+     * The distinction is [Process.ownedTurns] — queued events minus notice releases — not the
+     * state and not the raw event count. The second wait's condition is made true in the same
+     * event as the duplicate `activate` so the extra turn survives to the passivate below instead
+     * of being absorbed by the condition loop, where it would leave no trace.
+     */
+    @Test
+    fun activateIsNoOpWhenAWaitingProcessStillOwnsAnEarlierTurn() = runTest {
+        val resumes = mutableListOf<Double>()
+        var flag1 = false
+        var flag2 = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag1 }
+                waitUntil { flag2 }
+                resumes.add(time())
+                passivate()
+                resumes.add(time())
+                passivate()
+                resumes.add(time())
+            }
+        }
+        val driver = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                Process.activate(waiter, delay = 49.0) // turn owned by waiter, queued for t=50
+                hold(4.0)
+                flag1 = true // t=5: first wait released; waiter enters the second
+                hold(5.0)
+                flag2 = true // t=10
+                Process.activate(waiter) // waiting, but the t=50 turn is still owed
+            }
+        }
+
+        val sim = Simulation.create {
+            Process.activate(waiter)
+            Process.activate(driver)
+        }
+        sim.run(100.0)
+
+        // Released at t=10, then resumed once more by the surviving t=50 turn. A duplicate would
+        // show as a second t=10.
+        assertThat(resumes).isEqualTo(listOf(10.0, 50.0))
+    }
 }

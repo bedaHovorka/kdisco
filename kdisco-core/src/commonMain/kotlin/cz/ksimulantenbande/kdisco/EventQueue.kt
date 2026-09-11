@@ -43,18 +43,26 @@ internal class EventQueue {
     var mutations: Long = 0
         private set
 
-    fun schedule(process: Process, time: Double, priority: Boolean = false) {
+    /**
+     * @param noticeRelease true when this event is a notice's wake-up ([Process.waitUntil],
+     *   [Process.waitCrossing], [Process.waitUntilCrossing]) rather than a turn the process owns —
+     *   a [Process.hold], [Process.activate] or [Process.reactivate]. The two are counted
+     *   separately: see [Process.noticeReleases].
+     */
+    fun schedule(process: Process, time: Double, priority: Boolean = false, noticeRelease: Boolean = false) {
         val order = if (priority) priorityCounter-- else normalCounter++
         val event = ScheduledEvent(process, time, order)
         val index = findInsertionPoint(time, order)
         events.add(index, event)
         process.queuedEvents++
+        if (noticeRelease) process.noticeReleases++
         mutations++
     }
 
     fun remove(process: Process) {
         events.removeAll { it.process === process }
         process.queuedEvents = 0
+        process.noticeReleases = 0
         mutations++
     }
 
@@ -62,6 +70,10 @@ internal class EventQueue {
         if (events.isEmpty()) return null
         val event = events.removeAt(0)
         event.process.queuedEvents--
+        // Which of the process's queued events this was is not recorded, so attribute it to a
+        // notice release while any is outstanding. That is the conservative direction: it keeps
+        // the owned-turn count high, so `activate` stays a no-op rather than risking a duplicate.
+        if (event.process.noticeReleases > 0) event.process.noticeReleases--
         mutations++
         return event
     }
@@ -80,7 +92,10 @@ internal class EventQueue {
      * cannot be restarted, so anything still queued is unreachable.
      */
     fun clear() {
-        for (event in events) event.process.queuedEvents = 0
+        for (event in events) {
+            event.process.queuedEvents = 0
+            event.process.noticeReleases = 0
+        }
         events.clear()
         mutations++
     }

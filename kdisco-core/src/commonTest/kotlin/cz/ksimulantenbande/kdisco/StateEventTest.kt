@@ -950,4 +950,74 @@ class StateEventTest {
             assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
         }
     }
+
+    /**
+     * Stopping integration is not enough when the post-step mutation does not queue at the current
+     * time — the scheduler has to recompute its boundary too.
+     *
+     * The unsatisfied condition here activates a helper with a *delay*, so its event lands after
+     * the step end but before the `ticker`'s event at t=50, which is the boundary `run` peeked
+     * before integrating. Merely stopping integration left that stale boundary in place: the loop
+     * popped the helper's event and jumped the clock forward to it without integrating the
+     * variables from the step end. Measured at t=6.0 with x=10.0, the state at t=1.
+     *
+     * No unwind is involved here — the accepted step-end state is valid — only the boundary is
+     * stale, which is why [StepOutcome.RESTART] covers both and the notice path does not rewind.
+     */
+    @Test
+    fun aDelayedActivateFromAnUnsatisfiedConditionRecomputesTheBoundary() = runTest {
+        for (armAt in 1..20) {
+            val x = Variable(0.0)
+            val observed = mutableListOf<Pair<Double, Double>>()
+            var checks = 0
+            var fired = false
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                }
+            }
+            val helper = object : Process() {
+                override suspend fun actions() {
+                    observed.add(time() to x.state)
+                }
+            }
+            val waiter = object : Process() {
+                override suspend fun actions() {
+                    waitUntil {
+                        checks++
+                        if (checks >= armAt && !fired) {
+                            fired = true
+                            Process.activate(helper, delay = 5.0)
+                        }
+                        false // never satisfied: the engine schedules nothing of its own here
+                    }
+                }
+            }
+            val ticker = object : Process() {
+                override suspend fun actions() {
+                    hold(50.0)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            x.start()
+                            motion.start()
+                        }
+                    },
+                )
+                Process.activate(waiter)
+                Process.activate(ticker)
+            }
+
+            assertThat(fired).isTrue()
+            assertThat(observed).hasSize(1)
+            val (t, state) = observed[0]
+            assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
+        }
+    }
 }

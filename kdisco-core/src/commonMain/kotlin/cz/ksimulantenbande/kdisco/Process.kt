@@ -93,6 +93,20 @@ abstract class Process : Link() {
     internal var queuedEvents: Int = 0
 
     /**
+     * How many of [queuedEvents] are a notice's wake-up rather than a turn this process owns.
+     *
+     * The difference is what [activate] guards on. A release event belongs to the *wait* — the
+     * process has no turn of its own — so activating it then is not a duplicate. A [hold],
+     * [activate] or [reactivate] event does belong to the process, and is, even once the process
+     * has moved on to a different suspension point (including a *second* wait, which is how a
+     * state-only test misses it).
+     */
+    internal var noticeReleases: Int = 0
+
+    /** Queued events that are this process's own turn, rather than a notice's wake-up. */
+    internal val ownedTurns: Int get() = queuedEvents - noticeReleases
+
+    /**
      * Defines the behavior of this process. Called by the scheduler.
      *
      * **Only use kDisco suspension points** ([hold], [passivate], [waitUntil], [terminate])
@@ -443,10 +457,14 @@ abstract class Process : Link() {
      *
      * The two cases the state alone gets wrong:
      *
-     * - A [ProcessState.WAITING] process has no turn of its own — its wake-up is owned by the
-     *   notice registry — so activating it is not a duplicate, even once the notice has fired and
-     *   queued the release event. A plain "is anything queued for it?" test would suppress the
-     *   independent turn in exactly that window.
+     * - A [ProcessState.WAITING] process usually has no turn of its own — its wake-up is owned by
+     *   the notice registry — so activating it is not a duplicate, even once the notice has fired
+     *   and queued the release event. A plain "is anything queued for it?" test would suppress the
+     *   independent turn in exactly that window. Hence [ownedTurns], which excludes release events,
+     *   rather than [queuedEvents]. But *usually* is not *always*: a process can leave one wait via
+     *   its notice while an earlier [activate]'s turn is still queued and immediately enter a
+     *   second one, and it is then waiting *and* holding a turn. Reading the state alone would
+     *   queue a duplicate there.
      * - Conversely, a process whose notice released it while an earlier [activate]'s turn was still
      *   queued is left describing its new suspension point ([ProcessState.PASSIVATED], say) while
      *   that turn waits in the queue. Guarding on the state alone would queue a second one and
@@ -454,8 +472,8 @@ abstract class Process : Link() {
      */
     internal fun hasOwnTurn(): Boolean = when (_state) {
         ProcessState.RUNNING, ProcessState.SCHEDULED -> true
-        ProcessState.WAITING, ProcessState.TERMINATED -> false
-        ProcessState.IDLE, ProcessState.PASSIVATED -> queuedEvents > 0
+        ProcessState.TERMINATED -> false
+        ProcessState.IDLE, ProcessState.PASSIVATED, ProcessState.WAITING -> ownedTurns > 0
     }
 
     /**
