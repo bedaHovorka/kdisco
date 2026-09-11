@@ -76,6 +76,18 @@ abstract class Process : Link() {
     internal var _state: ProcessState = ProcessState.IDLE
 
     /**
+     * How many events are queued for this process right now. Maintained by [EventQueue] on every
+     * schedule and removal.
+     *
+     * [_state] alone cannot answer "does this process have a turn coming?". A process parked on a
+     * notice can be carried through [ProcessState.RUNNING] to [ProcessState.PASSIVATED] by its
+     * notice's wake-up while a turn queued by an independent [activate] is still outstanding —
+     * the state then describes the latest suspension point and says nothing about that turn. This
+     * count does, so [isActive] and [activate] consult it.
+     */
+    internal var queuedEvents: Int = 0
+
+    /**
      * Defines the behavior of this process. Called by the scheduler.
      *
      * **Only use kDisco suspension points** ([hold], [passivate], [waitUntil], [terminate])
@@ -379,15 +391,25 @@ abstract class Process : Link() {
 
     /**
      * Returns true if this process is currently running or will run again without an explicit
-     * [Process.reactivate] — i.e. it is [ProcessState.RUNNING], [ProcessState.SCHEDULED] or
-     * [ProcessState.WAITING]. It is not active while [passivate]d or after it has [terminate]d.
+     * [Process.reactivate] — i.e. it is [ProcessState.RUNNING], [ProcessState.SCHEDULED],
+     * [ProcessState.WAITING], or has an event queued for it. It is never active after it has
+     * [terminate]d.
+     *
+     * The queued-event clause is what makes this honest about a surplus turn. A process parked on
+     * a notice can be released by that notice while a turn queued by an independent [activate] is
+     * still outstanding; the release carries it to its next suspension point, so [passivate] leaves
+     * it [ProcessState.PASSIVATED] with an event still queued. It *will* run again, so this reports
+     * true — and [isPassivated] reports true at the same time, describing the suspension point it
+     * is parked at. The two are not mutually exclusive in that window.
      *
      * Use [isWaiting] to tell a process parked on a condition or guard notice apart from one that
      * has an event in the queue.
      */
-    fun isActive(): Boolean = _state == ProcessState.RUNNING ||
-        _state == ProcessState.SCHEDULED ||
-        _state == ProcessState.WAITING
+    fun isActive(): Boolean = when (_state) {
+        ProcessState.TERMINATED -> false
+        ProcessState.RUNNING, ProcessState.SCHEDULED, ProcessState.WAITING -> true
+        ProcessState.IDLE, ProcessState.PASSIVATED -> queuedEvents > 0
+    }
 
     /**
      * Returns true while this process is parked on a condition or guard notice — suspended in
@@ -409,12 +431,27 @@ abstract class Process : Link() {
     fun isWaiting(): Boolean = _state == ProcessState.WAITING
 
     /**
-     * True when this process already has a turn — it is [ProcessState.RUNNING], or
-     * [ProcessState.SCHEDULED] with an event queued (or a pending activation, before the run
-     * starts). This, not [isActive], is what [activate] guards on: a [ProcessState.WAITING] process
-     * has no turn of its own, so activating it is not a duplicate.
+     * True when this process already has a turn of its own — it is [ProcessState.RUNNING], it is
+     * [ProcessState.SCHEDULED] (an event queued, or a pending activation before the run starts), or
+     * it is parked at a [passivate] it has not reached the end of yet with an event still queued
+     * for it. This, not [isActive], is what [activate] guards on.
+     *
+     * The two cases the state alone gets wrong:
+     *
+     * - A [ProcessState.WAITING] process has no turn of its own — its wake-up is owned by the
+     *   notice registry — so activating it is not a duplicate, even once the notice has fired and
+     *   queued the release event. A plain "is anything queued for it?" test would suppress the
+     *   independent turn in exactly that window.
+     * - Conversely, a process whose notice released it while an earlier [activate]'s turn was still
+     *   queued is left describing its new suspension point ([ProcessState.PASSIVATED], say) while
+     *   that turn waits in the queue. Guarding on the state alone would queue a second one and
+     *   break the documented "the existing schedule wins" contract.
      */
-    internal fun isRunningOrScheduled(): Boolean = _state == ProcessState.RUNNING || _state == ProcessState.SCHEDULED
+    internal fun hasOwnTurn(): Boolean = when (_state) {
+        ProcessState.RUNNING, ProcessState.SCHEDULED -> true
+        ProcessState.WAITING, ProcessState.TERMINATED -> false
+        ProcessState.IDLE, ProcessState.PASSIVATED -> queuedEvents > 0
+    }
 
     /**
      * Returns true if this process is passivated (suspended until explicitly
@@ -452,6 +489,11 @@ abstract class Process : Link() {
          * existing schedule wins and no duplicate event is created. To move an already-scheduled
          * process to the current time, use [reactivate].
          *
+         * That guard is on the process's own queued turn, not on its state: a process released
+         * from a wait while an earlier activation's turn was still queued is parked at its next
+         * suspension point with that turn outstanding, and activating it again is still a
+         * duplicate. See [hasOwnTurn].
+         *
          * A process parked in [waitUntil], [waitCrossing] or [waitUntilCrossing] is deliberately
          * **not** covered by that guard. Such a process has no turn of its own — its wake-up lives
          * in the notice registry — so `activate` queues an independent one. The two wake-ups are
@@ -481,7 +523,7 @@ abstract class Process : Link() {
             require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
             val ctx = activeContext ?: throw DiscoException("Not inside a simulation")
             if (process._terminated) return // mirrors reactivate(); never resurrect the dead
-            if (process.isRunningOrScheduled()) return // already has a turn — no duplicate event
+            if (process.hasOwnTurn()) return // already has a turn — no duplicate event
             process.context = ctx
             process._state = ProcessState.SCHEDULED
             if (ctx.isRunning) {

@@ -1131,4 +1131,84 @@ class ProcessTest {
             listOf("waitDone" to 1.0, "holdDone" to 1.0, "afterPassivate" to 6.0),
         )
     }
+
+    /**
+     * A surplus turn survives the wait that absorbed it, and `activate` has to see it.
+     *
+     * The waiter is parked in [Process.waitUntil] when a *delayed* `activate` queues an
+     * independent turn for t=50. Its condition then becomes true at t=5, so the notice's own
+     * wake-up carries it out of the wait and straight into [Process.passivate] — leaving it
+     * `PASSIVATED` with the t=50 turn still queued. `_state` now describes the suspension point
+     * and says nothing about that turn, so a guard reading the state alone queues a second event
+     * and the waiter wakes twice, breaking the documented "the existing schedule wins" contract.
+     *
+     * The delay is load-bearing: with an undelayed `activate` the turn is taken before the
+     * condition is ever satisfied and there is nothing left outstanding to duplicate.
+     */
+    @Test
+    fun activateIsNoOpWhileASurplusTurnFromAnEarlierActivateIsStillQueued() = runTest {
+        val resumes = mutableListOf<Double>()
+        var flag = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag }
+                resumes.add(time())
+                passivate()
+                resumes.add(time())
+            }
+        }
+        val driver = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                Process.activate(waiter, delay = 49.0) // independent turn, queued for t=50
+                hold(4.0) // t=5: release the wait; the t=50 turn stays queued
+                flag = true
+                hold(5.0) // t=10
+                Process.activate(waiter) // the t=50 turn is still owed — must not queue a second
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(waiter)
+            Process.activate(driver)
+        }
+        // Released by its notice at t=5, resumed once more by the surplus turn at t=50 — and not
+        // at t=10, which would be the duplicate.
+        assertThat(resumes).isEqualTo(listOf(5.0, 50.0))
+    }
+
+    /**
+     * [Process.isActive] promises "will run again without an explicit reactivate", so it has to
+     * count a queued turn the process's state no longer reflects.
+     *
+     * Same shape as [activateIsNoOpWhileASurplusTurnFromAnEarlierActivateIsStillQueued]: at t=6 the
+     * waiter is parked at a [Process.passivate] with the t=50 turn still queued. It is passivated
+     * *and* going to run again, so both predicates hold at once.
+     */
+    @Test
+    fun isActiveReportsTrueWhileASurplusTurnIsQueuedForAPassivatedProcess() = runTest {
+        var observed: String? = null
+        var flag = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag }
+                passivate()
+            }
+        }
+        val driver = object : Process() {
+            override suspend fun actions() {
+                hold(1.0)
+                Process.activate(waiter, delay = 49.0)
+                hold(4.0) // t=5
+                flag = true
+                hold(1.0) // t=6: the wait is over, the surplus turn is not
+                observed = "active=${waiter.isActive()} passivated=${waiter.isPassivated()} " +
+                    "waiting=${waiter.isWaiting()} queued=${Process.scheduledEventCount()}"
+            }
+        }
+        runSimulation(endTime = 100.0) {
+            Process.activate(waiter)
+            Process.activate(driver)
+        }
+        assertThat(observed).isEqualTo("active=true passivated=true waiting=false queued=1")
+    }
 }

@@ -18,27 +18,39 @@ package cz.ksimulantenbande.kdisco
  *   (descending insertion counter, so higher/less-negative order runs first).
  *   This matches jDisco behaviour where higher-priority activations take precedence.
  *
+ * Every mutation keeps [Process.queuedEvents] in step, so a process can answer "do I have a turn
+ * queued?" in O(1) without scanning the queue. That count, not the process state alone, is what
+ * [Process.isActive] and [Process.activate] consult — a notice-driven resume can change a parked
+ * process's state while an independently activated turn is still queued for it.
+ *
  * Uses ArrayList with binary search insertion: O(log n) search, O(n) insert.
  * Sufficient for typical simulations; can be replaced with a heap for very large
  * process counts.
  */
 internal class EventQueue {
     private val events = mutableListOf<ScheduledEvent>()
-    private var normalCounter: Long = 0      // FIFO: ascending — lower order runs first
-    private var priorityCounter: Long = -1   // LIFO: descending — higher (less negative) order runs first
+    private var normalCounter: Long = 0 // FIFO: ascending — lower order runs first
+    private var priorityCounter: Long = -1 // LIFO: descending — higher (less negative) order runs first
 
     fun schedule(process: Process, time: Double, priority: Boolean = false) {
         val order = if (priority) priorityCounter-- else normalCounter++
         val event = ScheduledEvent(process, time, order)
         val index = findInsertionPoint(time, order)
         events.add(index, event)
+        process.queuedEvents++
     }
 
     fun remove(process: Process) {
         events.removeAll { it.process === process }
+        process.queuedEvents = 0
     }
 
-    fun removeFirst(): ScheduledEvent? = if (events.isEmpty()) null else events.removeAt(0)
+    fun removeFirst(): ScheduledEvent? {
+        if (events.isEmpty()) return null
+        val event = events.removeAt(0)
+        event.process.queuedEvents--
+        return event
+    }
 
     fun isEmpty(): Boolean = events.isEmpty()
 
@@ -47,6 +59,7 @@ internal class EventQueue {
      * cannot be restarted, so anything still queued is unreachable.
      */
     fun clear() {
+        for (event in events) event.process.queuedEvents = 0
         events.clear()
     }
 
