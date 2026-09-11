@@ -382,4 +382,59 @@ class StateEventTest {
         // Nothing stranded: the absorbed turn left no notice and no queued event behind.
         assertThat(sim.activeProcessCount()).isEqualTo(0)
     }
+
+    /**
+     * A crossing notice cancelled *during* root-finding must not still be scheduled.
+     *
+     * `locateCrossings` checks the live registry before root-finding, but everything after that
+     * check — every bisection probe, and the final rollback — re-runs [Continuous.derivatives],
+     * and a derivatives override is allowed to call [Process.reactivate]. Here it does, on the very
+     * process whose crossing is being located: the notice is dropped and reactivate queues its own
+     * turn. Scheduling the crossing regardless hands the waiter a second, stale wake-up, which
+     * lands at its next suspension point — the [Process.passivate] below.
+     *
+     * The guard arms the latch when it first goes non-positive, which is the first-pass evaluation
+     * at the step end, so the reactivate lands inside the bisection that follows.
+     */
+    @Test
+    fun crossingCancelledByDerivativesDuringRootFindingIsNotStillScheduled() = runTest {
+        val x = Variable(0.0)
+        val resumes = mutableListOf<Double>()
+        var crossed = false
+        var fired = false
+        lateinit var waiter: Process
+
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 10.0
+                if (crossed && !fired) {
+                    fired = true
+                    Process.reactivate(waiter)
+                }
+            }
+        }
+        waiter = object : Process() {
+            override suspend fun actions() {
+                x.start()
+                motion.start()
+                waitCrossing {
+                    val g = 100.0 - x.state
+                    if (g <= 0.0) crossed = true
+                    g
+                }
+                resumes.add(time())
+                passivate()
+                resumes.add(time()) // only a stale second wake-up can get here
+            }
+        }
+
+        runSimulation(endTime = 60.0) {
+            dtMax = 1.0
+            Process.activate(waiter)
+        }
+
+        assertThat(fired).isTrue() // the reactivate really did run inside root-finding
+        // Resumed once, by the reactivate — not a second time by the cancelled crossing.
+        assertThat(resumes).hasSize(1)
+    }
 }

@@ -132,7 +132,8 @@ internal class ContinuousMonitor(
      * For every crossing notice whose guard changed sign relative to [guardsBefore], the
      * crossing time is located by [locateCrossingTime]. The earliest such crossing wins:
      * integration is rolled back to it, the notice is removed, and its process is scheduled
-     * at the crossing time.
+     * at the crossing time — unless the notice was cancelled while the root-finding probes were
+     * running user [Continuous.derivatives] code, in which case nothing is scheduled.
      *
      * @return true if a crossing fired (integration must stop), false otherwise.
      */
@@ -181,9 +182,17 @@ internal class ContinuousMonitor(
 
         // Roll variable states back to the located crossing time and schedule the process there.
         probeStateAt(stepStart, bestTime)
-        // Scheduled unconditionally, for the same reason as checkWaitNotices (issue #73).
-        context.eventQueue.schedule(notice.process, bestTime)
-        context.crossingNotices.remove(notice)
+        // Remove-and-test in one step, and schedule only if this notice was still live. The first
+        // pass checked the registry, but everything since — every bisection probe in
+        // [locateCrossingTime] and the rollback above — re-runs [Continuous.derivatives], which is
+        // allowed to call [Process.reactivate] or [Process.terminate] and so can cancel this very
+        // notice. Scheduling regardless would hand the process a second, stale wake-up on top of
+        // the one reactivate already queued, and it would land at the process's next suspension
+        // point. A notice that is still live is scheduled unconditionally, for the same reason as
+        // checkWaitNotices (issue #73): its wake-up may not be spent on an independent activate's.
+        if (context.crossingNotices.remove(notice)) {
+            context.eventQueue.schedule(notice.process, bestTime)
+        }
         return true
     }
 
