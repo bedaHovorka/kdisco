@@ -444,4 +444,86 @@ class StateEventTest {
         assertThat(abs(resumes[0] - 9.0)).isLessThan(1e-9)
         assertThat(abs(stateOnResume - 90.0)).isLessThan(1e-6)
     }
+
+    /**
+     * The same cancellation, swept across *every* point it can happen.
+     *
+     * Root-finding runs user [Continuous.derivatives] code many times — once per bisection probe,
+     * and once more in the final rollback to the located crossing — and a `reactivate` from any of
+     * them cancels the notice. The final rollback is the awkward one: a liveness test taken before
+     * it leaves that replay's own derivatives calls outside the window, so the notice can be
+     * cancelled after the test and still get scheduled.
+     *
+     * Rather than reach inside the engine to name that call, this arms the cancellation at the
+     * *n*-th derivatives call **after the guard first reads non-positive** — which is the
+     * first-pass evaluation at the step end, so every n lands inside crossing location — and
+     * sweeps n. The two invariants asserted must hold wherever it lands: the waiter resumes
+     * exactly once, and the state it observes matches the time it observes. x(t) = 10t exactly
+     * for this model, so the second is a direct equality.
+     *
+     * The small n fall in bisection, the larger ones in the final rollback, and the largest never
+     * fire at all — the crossing then happens normally at t=10. All three are legitimate, and all
+     * three must satisfy the invariants.
+     *
+     * The sweep upper bound is deliberately past the number of derivatives calls this model makes
+     * during location (245 on JVM at the time of writing): the count depends on how many bisection
+     * steps the guard needs, which is floating-point dependent and so not identical across targets,
+     * and an n past the end simply never fires. Too low a bound is the failure mode that matters —
+     * it stops before the final rollback and the sweep silently covers only bisection.
+     */
+    @Test
+    fun cancellationAtAnyPointDuringCrossingLocationLeavesOneConsistentResume() = runTest {
+        // 280 is comfortably past the ~245 derivatives calls one crossing location makes here.
+        for (armAt in 1..280) {
+            val x = Variable(0.0)
+            val resumes = mutableListOf<Double>()
+            val states = mutableListOf<Double>()
+            var crossed = false
+            var callsAfterCrossed = 0
+            var fired = false
+            lateinit var waiter: Process
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                    if (!crossed) return
+                    callsAfterCrossed++
+                    if (callsAfterCrossed >= armAt && !fired) {
+                        fired = true
+                        Process.reactivate(waiter)
+                    }
+                }
+            }
+            waiter = object : Process() {
+                override suspend fun actions() {
+                    x.start()
+                    motion.start()
+                    waitCrossing {
+                        val g = 100.0 - x.state
+                        if (g <= 0.0) crossed = true
+                        g
+                    }
+                    resumes.add(time())
+                    states.add(x.state)
+                    // Stop integration the moment the wait ends: derivatives called after crossing
+                    // location has finished are outside what this sweep is about, and a reactivate
+                    // from one of them would legitimately resume the passivated process again.
+                    motion.stop()
+                    x.stop()
+                    passivate()
+                    resumes.add(time()) // only a stale second wake-up can get here
+                    states.add(x.state)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(waiter)
+            }
+
+            assertThat(resumes).hasSize(1)
+            // The clock and the variable agree: x(t) = 10t for this model.
+            assertThat(abs(states[0] - 10.0 * resumes[0])).isLessThan(1e-6)
+        }
+    }
 }

@@ -181,25 +181,28 @@ internal class ContinuousMonitor(
         }
         val notice = bestNotice ?: return false
 
-        // Remove-and-test in one step. The first pass checked the registry, but every bisection
-        // probe since re-runs [Continuous.derivatives], which is allowed to call
-        // [Process.reactivate] or [Process.terminate] and so can cancel this very notice.
+        // Roll variable states back to the located crossing time.
+        probeStateAt(stepStart, bestTime)
+        // Only now remove-and-test, in one step and with nothing between it and the schedule
+        // below. The first pass checked the registry, but everything since — every bisection probe
+        // in [locateCrossingTime] *and* the rollback immediately above — re-runs
+        // [Continuous.derivatives], which is allowed to call [Process.reactivate] or
+        // [Process.terminate] and so can cancel this very notice. Testing any earlier would leave
+        // the rollback's own derivatives calls outside the window.
         if (!context.crossingNotices.remove(notice)) {
-            // Cancelled mid-location. The crossing is void — scheduling it anyway would hand the
-            // process a second, stale wake-up on top of the one reactivate already queued, landing
-            // at its next suspension point. Rolling *forward* to the crossing would be wrong too:
-            // the probes left the variables at a speculative time, while the cancelling call
-            // queued its turn back at whatever probe time it ran at. Unwind to the step start
-            // instead — the last state this engine actually committed, and no later than any turn
-            // queued during the step — so the clock and the variables still agree when the
-            // scheduler takes it.
+            // Cancelled somewhere during location. The crossing is void — scheduling it anyway
+            // would hand the process a second, stale wake-up on top of the one reactivate already
+            // queued, landing at its next suspension point. The rollback above is void too: it
+            // left the variables at a crossing that is not happening, while the cancelling call
+            // queued its turn back at whatever probe time it ran at. Unwind to the step start —
+            // the last state this engine committed, and no later than any turn queued during the
+            // step — and let the scheduler's next integrateUntil carry the variables forward to
+            // whatever event it actually takes, so the clock and the state agree there.
             probeStateAt(stepStart, stepStart)
             return true
         }
-        // Roll variable states back to the located crossing time and schedule the process there.
         // Scheduled unconditionally, for the same reason as checkWaitNotices (issue #73): a live
         // notice's wake-up may not be spent on an independent activate's.
-        probeStateAt(stepStart, bestTime)
         context.eventQueue.schedule(notice.process, bestTime)
         return true
     }

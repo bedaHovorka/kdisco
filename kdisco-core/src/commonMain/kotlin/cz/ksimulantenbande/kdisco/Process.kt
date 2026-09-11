@@ -40,9 +40,14 @@ internal enum class ProcessState {
     SCHEDULED,
 
     /**
-     * Suspended on a condition or guard notice — [Process.waitUntil], [Process.waitCrossing]
-     * or [Process.waitUntilCrossing]. The process has *no* event in the queue; its wake-up is
-     * owned by [SimulationContext.waitNotices] / [SimulationContext.crossingNotices].
+     * Parked on a condition or guard notice — [Process.waitUntil], [Process.waitCrossing] or
+     * [Process.waitUntilCrossing]. The wake-up is owned by [SimulationContext.waitNotices] /
+     * [SimulationContext.crossingNotices], not by the event queue: the process has no turn of
+     * its own, which is why [Process.activate] grants it an independent one.
+     *
+     * This is *not* the same as "has no event in the queue". All three release paths schedule the
+     * process without changing its state, so between a notice firing and the scheduler taking that
+     * turn the process is still [WAITING] with an event queued for it. See [Process.isWaiting].
      */
     WAITING,
 
