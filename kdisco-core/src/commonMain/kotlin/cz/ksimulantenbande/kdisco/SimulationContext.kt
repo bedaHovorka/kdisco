@@ -154,11 +154,20 @@ internal class SimulationContext {
     }
 
     /**
-     * Drops every wait and crossing notice held by [process] — both wake-up registries owned here.
-     * [Process.terminate] and [Process.reactivate] call this so the process cannot be woken by a
-     * stale notice afterwards.
+     * Drops every outstanding wake-up owned by [process]: a pending pre-run activation, a queued
+     * event, a wait notice and a crossing notice. [Process.terminate] and [Process.reactivate]
+     * call this so the process cannot be woken by a stale one afterwards.
+     *
+     * All four sources must be dropped together, which is why this is a single chokepoint rather
+     * than a line at each call site. [pendingActivations] is the one that is easy to forget: it
+     * holds activations registered before [Simulation.run] starts, and `run` converts each into an
+     * event. A process reactivated or terminated during `Simulation.create` setup therefore kept a
+     * pending entry that became a *second* event — resuming it mid-[Process.hold], or advancing
+     * the clock on behalf of a process that was already dead.
      */
-    internal fun removeNoticesOf(process: Process) {
+    internal fun dropWakeUpsOf(process: Process) {
+        pendingActivations.removeAll { it.process === process }
+        eventQueue.remove(process)
         waitNotices.removeAll { it.process === process }
         crossingNotices.removeAll { it.process === process }
     }

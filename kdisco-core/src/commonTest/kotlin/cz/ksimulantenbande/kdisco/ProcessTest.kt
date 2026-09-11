@@ -921,6 +921,68 @@ class ProcessTest {
     }
 
     /**
+     * [Process.reactivate] during `Simulation.create` setup must drop the pending activation it
+     * replaces, not just queued events and notices.
+     *
+     * Activations registered before [Simulation.run] starts live in `pendingActivations`, a
+     * separate registry that `run` converts into events. Before `reactivate` cleared it, the
+     * original `activate(p, 0.5)` still became an event at t=0.5 *in addition* to the
+     * current-time turn `reactivate` scheduled — a duplicate that resumed the process mid-`hold`
+     * and finished it at 0.5 instead of 2.0, violating reactivate's no-duplicate contract.
+     */
+    @Test
+    fun reactivateBeforeRunDropsTheReplacedPendingActivation() = runTest(timeout = 10.seconds) {
+        val times = mutableListOf<Double>()
+        val p = object : Process() {
+            override suspend fun actions() {
+                times.add(time())
+                hold(2.0)
+                times.add(time())
+            }
+        }
+        val sim = Simulation.create {
+            Process.activate(p, 0.5)
+            Process.reactivate(p) // supersedes the pending activation; must not leave it behind
+        }
+        sim.run(10.0)
+
+        assertThat(times).isEqualTo(listOf(0.0, 2.0))
+    }
+
+    /**
+     * [Process.terminate] during `Simulation.create` setup must drop the pending activation too.
+     *
+     * Otherwise [Simulation.run] converts it into an event for a process that is already dead:
+     * the scheduler refuses to launch it, but the event still counts in [Simulation.activeProcessCount]
+     * and advances the simulation clock on its behalf before being discarded.
+     */
+    @Test
+    fun terminateBeforeRunDropsThePendingActivation() = runTest(timeout = 10.seconds) {
+        var ran = false
+        val p = object : Process() {
+            override suspend fun actions() {
+                ran = true
+            }
+        }
+        val sim = Simulation.create {
+            Process.activate(p, 5.0)
+            try {
+                p.terminate()
+            } catch (e: ProcessTerminatedException) {
+                // terminate() signals by throwing; outside a process coroutine we catch it here.
+            }
+        }
+        val activeBeforeRun = sim.activeProcessCount()
+        sim.run(10.0)
+
+        assertThat(p.isTerminated()).isTrue()
+        assertThat(ran).isFalse()
+        // The dead process owns no outstanding wake-up, so it neither counts nor moves the clock.
+        assertThat(activeBeforeRun).isEqualTo(0)
+        assertThat(sim.time()).isEqualTo(0.0)
+    }
+
+    /**
      * End-of-run cancellation must leave nothing outstanding, including an event an independent
      * [Process.activate] had already queued for a notice-parked process.
      *

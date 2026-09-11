@@ -354,12 +354,12 @@ abstract class Process : Link() {
     open fun terminate() {
         _state = ProcessState.TERMINATED
         context.emit { SimulationEvent.ProcessTerminated(context.currentTime, this) }
-        context.eventQueue.remove(this)
         continuation = null
-        // All three wake-up sources must be dropped. Leaving a wait notice behind would have its
+        // Every wake-up source must be dropped. Leaving a wait notice behind would have its
         // condition re-evaluated after every event and every integration step for the rest of the
-        // run, repeatedly scheduling a dead process.
-        context.removeNoticesOf(this)
+        // run, repeatedly scheduling a dead process; leaving a pending pre-run activation behind
+        // would let Simulation.run turn it into an event that advances the clock for a dead one.
+        context.dropWakeUpsOf(this)
         throw ProcessTerminatedException()
     }
 
@@ -511,8 +511,10 @@ abstract class Process : Link() {
             val ctx = process.context
             process._state = ProcessState.SCHEDULED
             ctx.emit { SimulationEvent.ProcessReactivated(ctx.currentTime, process) }
-            ctx.removeNoticesOf(process) // clear stale wait and crossing notices
-            ctx.eventQueue.remove(process) // prevent duplicate if already scheduled
+            // Drops the notices, any queued event, and any pending pre-run activation. The last
+            // one matters when reactivate is called during Simulation.create setup: run() would
+            // otherwise also convert that entry into a second, later event for this process.
+            ctx.dropWakeUpsOf(process)
             ctx.eventQueue.schedule(process, ctx.currentTime)
         }
 
