@@ -60,10 +60,10 @@ internal class ContinuousMonitor(
      *
      * Does nothing if there are no active [Continuous] processes.
      *
-     * @return true if a crossing-location pass was aborted and the variables unwound to the start
-     *   of that step (see [locateCrossings]). The caller's integration boundary is stale — the
-     *   clock has moved backwards and the queue may hold a turn queued during the aborted pass —
-     *   so it must restart its loop and recompute the boundary before popping anything.
+     * @return true if a step was aborted and the variables unwound to its start (see
+     *   [settleStep]). The caller's integration boundary is stale — the clock has moved backwards
+     *   and the queue holds a turn queued during the aborted step — so it must restart its loop and
+     *   recompute the boundary before popping anything.
      */
     fun integrateUntil(targetTime: Double): Boolean {
         if (context.firstCont == null) return false
@@ -76,6 +76,14 @@ internal class ContinuousMonitor(
             while (context.currentTime < targetTime) {
                 val stepStart = context.currentTime
                 saveStepStartState()
+                // Baseline for "did user code schedule or cancel anything during this step?".
+                // Taken before the first guard sample, because every piece of user code the step
+                // runs — guards, the initial derivatives call, each RK stage, each root-finding
+                // probe — may call [Process.activate], [Process.reactivate] or [Process.terminate],
+                // and each of those queues or drops a turn at whatever speculative time the engine
+                // is sitting at. A mutation count, not a queue size: reactivate removes and adds,
+                // leaving the size equal.
+                val queueMutationsBefore = context.eventQueue.mutations
                 // Sample guard values at the start of the step (states are at stepStart).
                 val guardsBefore = sampleGuards()
 
@@ -85,26 +93,48 @@ internal class ContinuousMonitor(
                 val dtNow = chooseStepSize(dtNextLocal, targetTime - context.currentTime)
                 dtNextLocal = integrator.integrate(this, context, dtNow, targetTime)
 
-                // Locate any state event (zero-crossing) inside the accepted step. If one fired,
-                // integration is rolled back to the crossing time and the waiting process is
-                // scheduled there; if the pass was aborted the variables were unwound to
-                // stepStart. Either way this integration pass stops here.
-                val outcome = if (guardsBefore != null) locateCrossings(stepStart, guardsBefore) else Location.NONE
-                if (outcome != Location.NONE) {
-                    aborted = outcome == Location.ABORTED
+                val outcome = settleStep(stepStart, guardsBefore, queueMutationsBefore)
+                if (outcome != StepOutcome.CONTINUE) {
+                    aborted = outcome == StepOutcome.ABORTED
                     break
                 }
-
-                // Stop integration early if a wait-notice or a level-triggered crossing notice
-                // was satisfied so that the scheduler can process the newly-scheduled event
-                // with variable states that match currentTime.
-                if (postStepNoticesFired()) break
             }
             dtNext = dtNextLocal
         } finally {
             context.monitorActive = false
         }
         return aborted
+    }
+
+    /**
+     * Decides what an accepted step settles to: whether a crossing was located inside it, whether
+     * the step is void because user code scheduled something at a speculative time, or whether a
+     * wait notice or level crossing became satisfied at its end.
+     *
+     * The queue-mutation test covers the whole step, not just crossing location, and runs even when
+     * nothing crossed. Any user code the step ran can queue a turn — a guard that did not cross,
+     * the initial derivatives call, an RK stage — and such a turn sits at a speculative time that
+     * can be *earlier* than where integration has since reached. Continuing to the original target
+     * would leave the scheduler to pop it holding state from the future.
+     */
+    private fun settleStep(
+        stepStart: Double,
+        guardsBefore: List<Pair<CrossingNotice, Double>>?,
+        queueMutationsBefore: Long,
+    ): StepOutcome {
+        val located = if (guardsBefore != null) {
+            locateCrossings(stepStart, guardsBefore, queueMutationsBefore)
+        } else {
+            StepOutcome.CONTINUE
+        }
+        if (located != StepOutcome.CONTINUE) return located
+        if (context.eventQueue.mutations != queueMutationsBefore) {
+            probeStateAt(stepStart, stepStart)
+            return StepOutcome.ABORTED
+        }
+        // Stop integration if a wait notice or a level-triggered crossing notice was satisfied, so
+        // the scheduler processes the newly-scheduled event with states that match currentTime.
+        return if (postStepNoticesFired()) StepOutcome.STOP else StepOutcome.CONTINUE
     }
 
     /** Saves each active [Variable]'s pre-step state and clears its rate for the coming step. */
@@ -167,20 +197,17 @@ internal class ContinuousMonitor(
      * root-finding probes were running, in which case nothing is scheduled and the variables are
      * unwound to the step start instead.
      *
-     * @return [Location.FIRED] if a crossing fired (integration must stop), [Location.ABORTED] if
-     *   the pass was invalidated and the variables were unwound to [stepStart], or [Location.NONE].
+     * @return [StepOutcome.STOP] if a crossing fired (integration must stop), [StepOutcome.ABORTED] if
+     *   the pass was invalidated and the variables were unwound to [stepStart], or [StepOutcome.CONTINUE].
      */
-    private fun locateCrossings(stepStart: Double, guardsBefore: List<Pair<CrossingNotice, Double>>): Location {
+    private fun locateCrossings(
+        stepStart: Double,
+        guardsBefore: List<Pair<CrossingNotice, Double>>,
+        queueMutationsBefore: Long,
+    ): StepOutcome {
         val stepEnd = context.currentTime
-        // Everything from here on runs user code: the guard evaluations of the first pass, then
-        // [Continuous.derivatives] on every bisection probe and on the rollback. That code may call
-        // [Process.activate], [Process.reactivate] or [Process.terminate], each of which queues or
-        // drops a turn — at whatever speculative probe time the engine happens to be sitting at.
-        // Any such turn invalidates this pass, so take the baseline before the first guard runs.
-        // A mutation count, not a queue size: reactivate removes and adds, leaving the size equal.
-        val queueMutationsBefore = context.eventQueue.mutations
         val crossed = collectCrossed(guardsBefore)
-        if (crossed.isEmpty()) return Location.NONE
+        if (crossed.isEmpty()) return StepOutcome.CONTINUE
 
         // Second pass: locate the crossing time for each crossing notice and keep the earliest.
         var bestNotice: CrossingNotice? = null
@@ -192,7 +219,7 @@ internal class ContinuousMonitor(
                 bestNotice = notice
             }
         }
-        val notice = bestNotice ?: return Location.NONE
+        val notice = bestNotice ?: return StepOutcome.CONTINUE
 
         // Roll variable states back to the located crossing time.
         probeStateAt(stepStart, bestTime)
@@ -213,17 +240,17 @@ internal class ContinuousMonitor(
             //
             // Unwind to the step start instead — the last state this engine committed, and no
             // later than any turn queued during the step — and leave every surviving notice
-            // registered. [Location.ABORTED] makes the scheduler recompute its event boundary and
+            // registered. [StepOutcome.ABORTED] makes the scheduler recompute its event boundary and
             // integrate forward to whatever event it actually takes, so the clock and the state
             // agree there, and this crossing is simply located again on a later step.
             probeStateAt(stepStart, stepStart)
-            return Location.ABORTED
+            return StepOutcome.ABORTED
         }
         // Scheduled unconditionally, for the same reason as checkWaitNotices (issue #73): a live
         // notice's wake-up may not be spent on an independent activate's.
         context.crossingNotices.remove(notice)
         context.eventQueue.schedule(notice.process, bestTime)
-        return Location.FIRED
+        return StepOutcome.STOP
     }
 
     /**
@@ -338,19 +365,23 @@ internal class ContinuousMonitor(
 }
 
 /**
- * Outcome of one [ContinuousMonitor] crossing-location pass.
+ * What an accepted integration step settled to.
  */
-internal enum class Location {
-    /** No guard crossed in this step; integration continues. */
-    NONE,
-
-    /** A crossing was located, variables rolled back to it, and its process scheduled there. */
-    FIRED,
+internal enum class StepOutcome {
+    /** Nothing is owed at this time; integration continues towards its target. */
+    CONTINUE,
 
     /**
-     * The pass ran user code that queued or dropped a turn, so the located crossing is void. The
-     * variables were unwound to the step start and nothing was scheduled; the caller must restart
-     * the scheduler loop before popping an event.
+     * Something was scheduled at or before the current time — a located crossing, a satisfied wait
+     * notice or level crossing — so integration stops here and the scheduler takes it with variable
+     * states that match the clock.
+     */
+    STOP,
+
+    /**
+     * User code queued or dropped a turn at a speculative time during the step, so the step is
+     * void. The variables were unwound to the step start and nothing was scheduled; the caller
+     * must restart the scheduler loop and recompute its event boundary before popping anything.
      */
     ABORTED,
 }

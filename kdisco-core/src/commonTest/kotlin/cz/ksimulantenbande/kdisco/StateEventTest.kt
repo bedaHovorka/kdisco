@@ -736,9 +736,146 @@ class StateEventTest {
                 Process.activate(ticker)
             }
 
+            // Without these the loop below is vacuous: an armAt that never triggers leaves a
+            // single consistent observation (or none) and the sweep would pass regardless.
+            assertThat(fired).isTrue()
+            assertThat(observed).hasSize(2) // the helper resumed, and so did the waiter
             for ((t, state) in observed) {
                 assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
             }
+        }
+    }
+
+    /**
+     * The scheduling side effect need not happen during crossing location at all.
+     *
+     * `derivatives()` runs on the initial rate computation and on every RK stage of the accepted
+     * step, long before any guard is evaluated. A `reactivate` from one of those queues a turn at a
+     * speculative stage time, and integration used to carry on to its original target — the
+     * `ticker`'s event at t=50 — so the helper was eventually resumed holding x=500.0, the state at
+     * t=50, at a clock of t=0.0. This is why the mutation baseline covers the whole step rather
+     * than just the location pass.
+     */
+    @Test
+    fun reactivatingDuringAnIntegrationStageLeavesTheResumeConsistent() = runTest {
+        for (armAt in 1..40) {
+            val x = Variable(0.0)
+            val observed = mutableListOf<Pair<Double, Double>>()
+            var calls = 0
+            var fired = false
+            lateinit var helper: Process
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                    calls++
+                    if (calls >= armAt && !fired) {
+                        fired = true
+                        Process.reactivate(helper)
+                    }
+                }
+            }
+            helper = object : Process() {
+                override suspend fun actions() {
+                    passivate()
+                    observed.add(time() to x.state)
+                }
+            }
+            // Gives integration a far-away target to run to, which is what made the stale state
+            // observable: without it the step ends at endTime and there is nothing early to pop.
+            val ticker = object : Process() {
+                override suspend fun actions() {
+                    hold(50.0)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            x.start()
+                            motion.start()
+                        }
+                    },
+                )
+                Process.activate(helper)
+                Process.activate(ticker)
+            }
+
+            assertThat(fired).isTrue()
+            assertThat(observed).hasSize(1)
+            val (t, state) = observed[0]
+            assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
+        }
+    }
+
+    /**
+     * A guard that does not cross is still user code, and a step with no crossing still has to be
+     * invalidated when it schedules something.
+     *
+     * The guard here never reaches zero within the run — `collectCrossed` always returns empty — so
+     * the location pass returned "nothing crossed" and integration continued to its original
+     * target, leaving the helper's turn to be popped at t=0.0 holding x=500.0. The mutation test
+     * now runs even when nothing crossed.
+     */
+    @Test
+    fun aNonCrossingGuardThatSchedulesStillInvalidatesTheStep() = runTest {
+        for (armAt in 1..40) {
+            val x = Variable(0.0)
+            val observed = mutableListOf<Pair<Double, Double>>()
+            var guardCalls = 0
+            var fired = false
+            lateinit var helper: Process
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                }
+            }
+            helper = object : Process() {
+                override suspend fun actions() {
+                    passivate()
+                    observed.add(time() to x.state)
+                }
+            }
+            val waiter = object : Process() {
+                override suspend fun actions() {
+                    waitCrossing {
+                        guardCalls++
+                        if (guardCalls >= armAt && !fired) {
+                            fired = true
+                            Process.reactivate(helper)
+                        }
+                        10_000.0 - x.state // never reached in this run
+                    }
+                }
+            }
+            val ticker = object : Process() {
+                override suspend fun actions() {
+                    hold(50.0)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            x.start()
+                            motion.start()
+                        }
+                    },
+                )
+                Process.activate(helper)
+                Process.activate(waiter)
+                Process.activate(ticker)
+            }
+
+            assertThat(fired).isTrue()
+            assertThat(observed).hasSize(1)
+            val (t, state) = observed[0]
+            assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
         }
     }
 }
