@@ -81,7 +81,7 @@ internal class SimulationContext {
 
     /**
      * Removes every notice of [notices] that satisfies [isSatisfied] and returns them, or null
-     * when none did.
+     * when none did. The result is read-only: callers only iterate it to schedule.
      *
      * The release list is allocated lazily, only when something actually fires: the notice checks
      * run after every discrete event and every accepted integration step, and almost none of those
@@ -92,7 +92,7 @@ internal class SimulationContext {
      * [Process.reactivate] or [Process.terminate] on any process, can throw a
      * concurrent-modification error. Conditions are expected to be pure.
      */
-    private inline fun <N> takeSatisfied(notices: MutableList<N>, isSatisfied: (N) -> Boolean): MutableList<N>? {
+    private inline fun <N> takeSatisfied(notices: MutableList<N>, isSatisfied: (N) -> Boolean): List<N>? {
         if (notices.isEmpty()) return null
         var satisfied: MutableList<N>? = null
         val iter = notices.iterator()
