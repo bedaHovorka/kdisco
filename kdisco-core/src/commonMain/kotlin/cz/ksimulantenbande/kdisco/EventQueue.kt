@@ -42,6 +42,14 @@ internal class EventQueue {
 
     fun isEmpty(): Boolean = events.isEmpty()
 
+    /**
+     * Drops every scheduled event. Called once when [Simulation.run] returns: the run is over and
+     * cannot be restarted, so anything still queued is unreachable.
+     */
+    fun clear() {
+        events.clear()
+    }
+
     fun peek(): ScheduledEvent? = events.firstOrNull()
 
     fun size(): Int = events.size

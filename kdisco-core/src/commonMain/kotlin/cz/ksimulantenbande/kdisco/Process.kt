@@ -391,12 +391,20 @@ abstract class Process : Link() {
 
     /**
      * Returns true while this process is parked on a condition or guard notice — suspended in
-     * [waitUntil], [waitCrossing] or [waitUntilCrossing] — *and* has no turn queued.
+     * [waitUntil], [waitCrossing] or [waitUntilCrossing] — and its wake-up has not yet been
+     * delivered.
      *
      * A waiting process's wake-up is owned by the notice registry, not the event queue, which is
      * why [activate] treats it differently from a [hold]-scheduled process. Note that an [activate]
      * on a waiting process queues a turn and moves it to [ProcessState.SCHEDULED], so this reports
      * false from that moment until the turn is taken, even though the wait itself is still pending.
+     *
+     * This is *not* the same as "has no event in the queue". When a notice fires, the release
+     * paths ([SimulationContext.checkWaitNotices], [SimulationContext.checkLevelCrossings] and
+     * [ContinuousMonitor]'s crossing location) schedule the process without changing its state, so
+     * between the notice firing and the scheduler taking that turn this still reports true while an
+     * event for the process is queued. A [Simulation.run] `beforeEvent` hook can observe that
+     * window. Read it as "parked until its notice event is delivered".
      */
     fun isWaiting(): Boolean = _state == ProcessState.WAITING
 

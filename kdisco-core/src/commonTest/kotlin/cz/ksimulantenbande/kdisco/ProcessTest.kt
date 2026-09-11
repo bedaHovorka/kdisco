@@ -921,6 +921,85 @@ class ProcessTest {
     }
 
     /**
+     * End-of-run cancellation must leave nothing outstanding, including an event an independent
+     * [Process.activate] had already queued for a notice-parked process.
+     *
+     * Cancellation drops the process's notice but not its queued event, and the scheduler loop
+     * stops at the *first* event past `endTime` — it pops that one and breaks, so any later event
+     * is never popped. Two events past the end are therefore needed to strand one: the dummy at
+     * t=20 absorbs the single pop, leaving the waiter's t=51 turn behind. Before [Simulation.run]
+     * cleared the queue on the way out, that left a terminated process with
+     * `scheduledEventCount() == 1` — outstanding work that can never be delivered.
+     */
+    @Test
+    fun endOfRunLeavesNoQueuedEventForACancelledWaiter() = runTest(timeout = 10.seconds) {
+        var dummyRan = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { false }
+            }
+        }
+        val sim = Simulation.create {
+            Process.activate(waiter)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    Process.activate(waiter, delay = 50.0) // past endTime, and not the first such
+                    Process.activate(
+                        object : Process() {
+                            override suspend fun actions() {
+                                dummyRan = true
+                            }
+                        },
+                        delay = 20.0, // past endTime too, and popped first
+                    )
+                }
+            })
+        }
+        sim.run(10.0)
+
+        // The dummy's only job is to be popped and discarded past endTime; if it ever runs, the
+        // scenario no longer strands the waiter's turn and the test below stops meaning anything.
+        assertThat(dummyRan).isFalse()
+        assertThat(waiter.isTerminated()).isTrue()
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
+    }
+
+    /**
+     * [Process.isWaiting] reports true from the moment a notice fires until the scheduler takes
+     * the resulting turn: the release paths schedule the process without changing its state. A
+     * `beforeEvent` hook can observe that window, so the predicate means "parked until its notice
+     * event is delivered", not "has no event in the queue" — which is what its KDoc used to claim.
+     */
+    @Test
+    fun isWaitingStaysTrueWhileTheReleasedTurnIsStillQueued() = runTest(timeout = 10.seconds) {
+        var flag = false
+        var observedWaitingWithQueuedTurn = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag }
+            }
+        }
+        val sim = Simulation.create {
+            Process.activate(waiter)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    flag = true
+                }
+            })
+        }
+        sim.run(10.0) {
+            // After the flag event, the notice has fired and queued the waiter's turn, but the
+            // scheduler has not taken it yet.
+            if (waiter.isWaiting() && sim.scheduledEventCount() > 0) observedWaitingWithQueuedTurn = true
+        }
+
+        assertThat(observedWaitingWithQueuedTurn).isTrue()
+    }
+
+    /**
      * A process parked in `waitUntil` is genuinely outstanding work, exactly like one parked in
      * `waitCrossing` (see StateEventTest.activeProcessCountIncludesProcessesWaitingOnCrossing).
      * Only the crossing registry used to be counted.

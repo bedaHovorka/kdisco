@@ -192,6 +192,13 @@ class Simulation internal constructor() {
             // were never reactivated, or processes whose hold() time is past endTime).
             simScope.cancel()
             withContext(NonCancellable) { simJob.join() }
+            // Cancellation drops each parked process's notice, but not any event an independent
+            // activate had already queued for it — and the scheduler loop stops at the first event
+            // past endTime, so later ones are never popped. Those events are unreachable once the
+            // run is over (a Simulation cannot be run twice), and leaving them would make
+            // scheduledEventCount() and activeProcessCount() report outstanding work that can
+            // never be delivered.
+            context.eventQueue.clear()
         }
         return true
     }
