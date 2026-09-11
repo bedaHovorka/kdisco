@@ -878,4 +878,76 @@ class StateEventTest {
             assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
         }
     }
+
+    /**
+     * The post-step notice checks run user code as well, and an *unsatisfied* condition can still
+     * schedule.
+     *
+     * The [Process.waitUntil] condition here never becomes true, so neither notice registry changes
+     * size and `postStepNoticesFired()` reports nothing fired — while the `reactivate` it performed
+     * has put a turn in the queue at the accepted step end. Integration used to carry on to the
+     * `ticker`'s event at t=50, so the helper resumed at t=1.0 holding x=500.0.
+     *
+     * This is the one place the step stops without unwinding: these checks run at the step end, so
+     * anything they queue is at the current time or later and the variables already match it.
+     */
+    @Test
+    fun anUnsatisfiedWaitConditionThatSchedulesStopsIntegration() = runTest {
+        for (armAt in 1..20) {
+            val x = Variable(0.0)
+            val observed = mutableListOf<Pair<Double, Double>>()
+            var checks = 0
+            var fired = false
+            lateinit var helper: Process
+
+            val motion = object : Continuous() {
+                override fun derivatives() {
+                    x.rate = 10.0
+                }
+            }
+            helper = object : Process() {
+                override suspend fun actions() {
+                    passivate()
+                    observed.add(time() to x.state)
+                }
+            }
+            val waiter = object : Process() {
+                override suspend fun actions() {
+                    waitUntil {
+                        checks++
+                        if (checks >= armAt && !fired) {
+                            fired = true
+                            Process.reactivate(helper)
+                        }
+                        false // never satisfied, so waitNotices never shrinks
+                    }
+                }
+            }
+            val ticker = object : Process() {
+                override suspend fun actions() {
+                    hold(50.0)
+                }
+            }
+
+            runSimulation(endTime = 60.0) {
+                dtMax = 1.0
+                Process.activate(
+                    object : Process() {
+                        override suspend fun actions() {
+                            x.start()
+                            motion.start()
+                        }
+                    },
+                )
+                Process.activate(helper)
+                Process.activate(waiter)
+                Process.activate(ticker)
+            }
+
+            assertThat(fired).isTrue()
+            assertThat(observed).hasSize(1)
+            val (t, state) = observed[0]
+            assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
+        }
+    }
 }

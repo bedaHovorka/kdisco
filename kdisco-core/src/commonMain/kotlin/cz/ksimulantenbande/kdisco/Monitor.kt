@@ -134,7 +134,20 @@ internal class ContinuousMonitor(
         }
         // Stop integration if a wait notice or a level-triggered crossing notice was satisfied, so
         // the scheduler processes the newly-scheduled event with states that match currentTime.
-        return if (postStepNoticesFired()) StepOutcome.STOP else StepOutcome.CONTINUE
+        //
+        // The conditions and guards those checks evaluate are user code too, and one that is *not*
+        // satisfied can still schedule: an unsatisfied waitUntil condition reactivating a helper
+        // leaves both notice registries the same size, so the check reports nothing fired while a
+        // turn now sits in the queue at the current time. Integrating on past it would leave the
+        // scheduler to resume that process holding state from the future.
+        //
+        // This is STOP, not ABORTED: these run at the accepted step end, so anything they queue is
+        // at currentTime or later, and the variables already match currentTime. Nothing to unwind —
+        // integration simply must not advance beyond it.
+        val mutationsBeforeNotices = context.eventQueue.mutations
+        val noticesFired = postStepNoticesFired()
+        val noticesScheduled = context.eventQueue.mutations != mutationsBeforeNotices
+        return if (noticesFired || noticesScheduled) StepOutcome.STOP else StepOutcome.CONTINUE
     }
 
     /** Saves each active [Variable]'s pre-step state and clears its rate for the coming step. */
