@@ -51,7 +51,7 @@ internal class EventQueue {
      */
     fun schedule(process: Process, time: Double, priority: Boolean = false, noticeRelease: Boolean = false) {
         val order = if (priority) priorityCounter-- else normalCounter++
-        val event = ScheduledEvent(process, time, order)
+        val event = ScheduledEvent(process, time, order, noticeRelease)
         val index = findInsertionPoint(time, order)
         events.add(index, event)
         process.queuedEvents++
@@ -70,10 +70,11 @@ internal class EventQueue {
         if (events.isEmpty()) return null
         val event = events.removeAt(0)
         event.process.queuedEvents--
-        // Which of the process's queued events this was is not recorded, so attribute it to a
-        // notice release while any is outstanding. That is the conservative direction: it keeps
-        // the owned-turn count high, so `activate` stays a no-op rather than risking a duplicate.
-        if (event.process.noticeReleases > 0) event.process.noticeReleases--
+        // Each event carries which channel it came from, so the two counts stay exact. Inferring
+        // it here would go wrong whenever a process holds one of each at the same instant: FIFO
+        // pops the owned turn first, and charging that to the release would leave the release
+        // counted as an owned turn and suppress a later, legitimate activate.
+        if (event.noticeRelease) event.process.noticeReleases--
         mutations++
         return event
     }
@@ -123,4 +124,10 @@ internal class EventQueue {
 /**
  * A scheduled event in the event queue.
  */
-internal class ScheduledEvent(val process: Process, val time: Double, val insertionOrder: Long)
+internal class ScheduledEvent(
+    val process: Process,
+    val time: Double,
+    val insertionOrder: Long,
+    /** True when this event is a notice's wake-up rather than a turn [process] owns. */
+    val noticeRelease: Boolean = false,
+)

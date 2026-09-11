@@ -1347,4 +1347,56 @@ class ProcessTest {
         // show as a second t=10.
         assertThat(resumes).isEqualTo(listOf(10.0, 50.0))
     }
+
+    /**
+     * The two wake-up channels have to stay told apart when both are queued for the same instant.
+     *
+     * The driver satisfies the wait's condition *and* activates the waiting process in the same
+     * event, so at t=5 the process holds two events: its own turn, queued first and therefore
+     * popped first by FIFO, and the notice's release behind it. Attributing that first pop by
+     * guesswork rather than by what the event actually was charged it to the release, leaving the
+     * release itself counted as an owned turn — and the `beforeEvent` hook's independent
+     * `activate`, a third distinct intent, was then refused as a duplicate.
+     *
+     * Three resumes are owed here and all three must land: the wait ending, the release, and the
+     * hook's activation.
+     */
+    @Test
+    fun activateIsNotSuppressedByANoticeReleaseQueuedAlongsideAnOwnedTurn() = runTest {
+        val resumes = mutableListOf<Double>()
+        var flag = false
+        var armed = false
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil { flag }
+                resumes.add(time())
+                passivate()
+                resumes.add(time())
+                passivate()
+                resumes.add(time())
+            }
+        }
+        val driver = object : Process() {
+            override suspend fun actions() {
+                hold(5.0)
+                flag = true // the release is queued after this event, behind the turn below
+                Process.activate(waiter)
+            }
+        }
+
+        val sim = Simulation.create {
+            Process.activate(waiter)
+            Process.activate(driver)
+        }
+        sim.run(100.0) {
+            // Fires in the window between the owned turn being taken and the release arriving.
+            if (!armed && waiter.isPassivated()) {
+                armed = true
+                Process.activate(waiter)
+            }
+        }
+
+        assertThat(armed).isTrue()
+        assertThat(resumes).isEqualTo(listOf(5.0, 5.0, 5.0))
+    }
 }

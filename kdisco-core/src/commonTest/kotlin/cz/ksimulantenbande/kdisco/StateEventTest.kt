@@ -1020,4 +1020,74 @@ class StateEventTest {
             assertThat(abs(state - 10.0 * t)).isLessThan(1e-6)
         }
     }
+
+    /**
+     * An invalidated step must not cost a `beforeEvent` invocation.
+     *
+     * The hook is documented as running once per event-loop iteration, before the next event is
+     * processed, and [SimulationController] uses it as the place a paused run waits for
+     * authorization. Restarting the outer loop to recompute the integration boundary fired it a
+     * second time without an event having been processed, so a controller's single `step()` would
+     * be spent on a retry that advances nothing.
+     *
+     * The retry now happens in place. This model triggers exactly one invalidated step — the same
+     * delayed activate as
+     * [aDelayedActivateFromAnUnsatisfiedConditionRecomputesTheBoundary] — and the hook count is
+     * pinned at 6; it was 7 before, one per restart.
+     */
+    @Test
+    fun anInvalidatedStepDoesNotReEnterTheBeforeEventHook() = runTest {
+        val x = Variable(0.0)
+        var checks = 0
+        var fired = false
+        var hookCalls = 0
+        var helperRuns = 0
+
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 10.0
+            }
+        }
+        val helper = object : Process() {
+            override suspend fun actions() {
+                helperRuns++
+            }
+        }
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                waitUntil {
+                    checks++
+                    if (checks >= 6 && !fired) {
+                        fired = true
+                        Process.activate(helper, delay = 5.0)
+                    }
+                    false
+                }
+            }
+        }
+        val ticker = object : Process() {
+            override suspend fun actions() {
+                hold(50.0)
+            }
+        }
+
+        val sim = Simulation.create {
+            dtMax = 1.0
+            Process.activate(
+                object : Process() {
+                    override suspend fun actions() {
+                        x.start()
+                        motion.start()
+                    }
+                },
+            )
+            Process.activate(waiter)
+            Process.activate(ticker)
+        }
+        sim.run(60.0) { hookCalls++ }
+
+        assertThat(fired).isTrue() // the step really was invalidated
+        assertThat(helperRuns).isEqualTo(1) // and the work still happened
+        assertThat(hookCalls).isEqualTo(6)
+    }
 }

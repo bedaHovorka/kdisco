@@ -121,21 +121,26 @@ class Simulation internal constructor() {
                 currentCoroutineContext().ensureActive()
                 beforeEvent?.invoke()
 
-                // Peek at the next event without removing it yet.
-                val next = context.eventQueue.peek()
-
-                // Determine integration boundary: next event or endTime if queue is empty.
-                // When the queue is empty but continuous processes are still active, we must
-                // integrate all the way to endTime rather than exiting the loop immediately.
-                val integrateTo = if (next != null) minOf(next.time, endTime) else endTime
+                // Peek at the next event without removing it yet. The integration boundary is
+                // that event's time, or endTime when the queue is empty and only continuous
+                // processes are still active — integration must run all the way there rather than
+                // exiting the loop immediately.
+                var next = context.eventQueue.peek()
 
                 // Integrate continuous processes up to the next event boundary (or endTime).
                 if (context.firstCont != null) {
                     // A step can be invalidated by user code queueing or dropping a turn, in which
-                    // case `integrateTo` was computed from a peek that predates it — and the clock
-                    // may have moved backwards with the unwind. Restart the iteration and
-                    // recompute the boundary rather than popping against a stale one.
-                    if (context.monitor.integrateUntil(integrateTo)) continue
+                    // case the boundary was computed from a peek that predates it — and the clock
+                    // may have moved backwards with the unwind. Re-peek and integrate again rather
+                    // than popping against a stale boundary.
+                    //
+                    // Retried here rather than by restarting the outer loop, because no event has
+                    // been processed: re-entering beforeEvent would spend a SimulationController's
+                    // single-step authorization on a retry that advances the simulation by nothing.
+                    while (context.monitor.integrateUntil(integrationBoundary(next, endTime))) {
+                        currentCoroutineContext().ensureActive()
+                        next = context.eventQueue.peek()
+                    }
                 }
 
                 // If no more discrete events: check if integrateUntil added events via
@@ -246,6 +251,13 @@ class Simulation internal constructor() {
      * This is a convenience overload equivalent to [run] with a controller argument.
      */
     suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
+
+    /**
+     * How far continuous integration may run before the next discrete event: that event's time, or
+     * [endTime] when the queue is empty and only continuous processes are still active.
+     */
+    private fun integrationBoundary(next: ScheduledEvent?, endTime: Double): Double =
+        if (next != null) minOf(next.time, endTime) else endTime
 
     /** Returns the current simulation clock time. */
     fun time(): Double = context.currentTime
