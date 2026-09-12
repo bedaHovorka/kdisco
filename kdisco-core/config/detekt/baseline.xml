@@ -3,8 +3,6 @@
   <ManuallySuppressedIssues/>
   <CurrentIssues>
     <ID>CyclomaticComplexMethod:BouncingBallsTest.kt$BouncingBallsTest$@Test fun bouncingBallsStayWithinBoundsAfterCollisions()</ID>
-    <ID>CyclomaticComplexMethod:Monitor.kt$ContinuousMonitor$fun integrateUntil(targetTime: Double)</ID>
-    <ID>CyclomaticComplexMethod:Monitor.kt$ContinuousMonitor$private fun locateCrossings(stepStart: Double, guardsBefore: List&lt;Pair&lt;CrossingNotice, Double&gt;&gt;): Boolean</ID>
     <ID>CyclomaticComplexMethod:RKF45.kt$RKF45Integrator$override fun integrate( monitor: ContinuousMonitor, context: SimulationContext, dtNow: Double, targetTime: Double ): Double</ID>
     <ID>CyclomaticComplexMethod:Resource.kt$Resource$fun release(amount: Int = 1)</ID>
     <ID>CyclomaticComplexMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>

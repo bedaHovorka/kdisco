@@ -8,6 +8,7 @@ import assertk.assertions.*
 import kotlinx.coroutines.test.runTest
 import kotlin.math.abs
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Tests for [Process.waitUntilCrossing] — the *level-triggered*, root-found threshold wait.
@@ -29,7 +30,7 @@ class WaitUntilCrossingTest {
         runSimulation(endTime = 10.0) {
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    waitUntilCrossing { -1.0 }  // satisfied from the start
+                    waitUntilCrossing { -1.0 } // satisfied from the start
                     resumeTime = time()
                 }
             })
@@ -45,7 +46,7 @@ class WaitUntilCrossingTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(2.0)
-                    waitUntilCrossing { 0.0 }  // exactly on the boundary
+                    waitUntilCrossing { 0.0 } // exactly on the boundary
                     resumeTime = time()
                 }
             })
@@ -62,18 +63,22 @@ class WaitUntilCrossingTest {
     fun variableAlreadyPastThresholdReturnsImmediately() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var resumeTime = Double.NaN
         runSimulation(endTime = 20.0) {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
-                    hold(5.0)  // x has advanced well past 3.0 by now
+                    x.start()
+                    motion.start()
+                    hold(5.0) // x has advanced well past 3.0 by now
                     waitUntilCrossing { 3.0 - x.state }
                     resumeTime = time()
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -101,7 +106,7 @@ class WaitUntilCrossingTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(3.0)
-                    level = -1.0  // guard becomes satisfied by a discrete state change
+                    level = -1.0 // guard becomes satisfied by a discrete state change
                 }
             })
         }
@@ -116,23 +121,27 @@ class WaitUntilCrossingTest {
     fun discreteJumpOfVariableStatePastThresholdResumes() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 0.0 }  // variable at rest
+            override fun derivatives() {
+                x.rate = 0.0
+            } // variable at rest
         }
         var resumeTime = Double.NaN
         runSimulation(endTime = 20.0) {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 5.0 - x.state }
                     resumeTime = time()
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(4.0)
-                    x.state = 10.0  // discrete jump past the threshold
+                    x.state = 10.0 // discrete jump past the threshold
                 }
             })
         }
@@ -152,9 +161,11 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         val target = 4.999
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 2.0 * (target - x.state) }
+            override fun derivatives() {
+                x.rate = 2.0 * (target - x.state)
+            }
         }
-        var threshold = 5.0  // above the asymptote: never reached by integration
+        var threshold = 5.0 // above the asymptote: never reached by integration
         var resumeTime = Double.NaN
         var stateAtResume = Double.NaN
 
@@ -162,17 +173,19 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { threshold - x.state }
                     resumeTime = time()
                     stateAtResume = x.state
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    hold(10.0)  // by now x ≈ 4.999 and stalled short of 5.0
-                    threshold = 4.9  // condition clears: guard = 4.9 - x < 0
+                    hold(10.0) // by now x ≈ 4.999 and stalled short of 5.0
+                    threshold = 4.9 // condition clears: guard = 4.9 - x < 0
                 }
             })
         }
@@ -191,7 +204,9 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         val target = 4.999
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 2.0 * (target - x.state) }
+            override fun derivatives() {
+                x.rate = 2.0 * (target - x.state)
+            }
         }
         var threshold = 5.0
         var fired = false
@@ -200,16 +215,17 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitCrossing { threshold - x.state }
-                    fired = true  // must NOT run: no sign change is ever observed at step endpoints
+                    fired = true // must NOT run: no sign change is ever observed at step endpoints
                 }
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(10.0)
-                    threshold = 4.9  // guard is now negative, but it flipped between steps —
-                                     // the endpoint comparison never sees a sign change
+                    threshold = 4.9 // guard is now negative, but it flipped between steps —
+                    // the endpoint comparison never sees a sign change
                 }
             })
         }
@@ -243,12 +259,16 @@ class WaitUntilCrossingTest {
             dtMin = 1e-5
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    position.start(); v.start(); train.start()
-                    val gateThreshold = boundary - 1e-5  // boundary - dtMin
+                    position.start()
+                    v.start()
+                    train.start()
+                    val gateThreshold = boundary - 1e-5 // boundary - dtMin
                     waitUntilCrossing { gateThreshold - position.state }
                     gateTime = time()
                     gatePosition = position.state
-                    train.stop(); v.stop(); position.stop()
+                    train.stop()
+                    v.stop()
+                    position.stop()
                 }
             })
         }
@@ -286,12 +306,16 @@ class WaitUntilCrossingTest {
             dtMin = 1e-5
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    position.start(); v.start(); train.start()
+                    position.start()
+                    v.start()
+                    train.start()
                     // Threshold beyond the asymptote: the train stops short and never reaches it.
                     waitUntilCrossing { (boundary + 1e-3) - position.state }
                     gateTime = time()
-                    fired = true  // must NOT run
-                    train.stop(); v.stop(); position.stop()
+                    fired = true // must NOT run
+                    train.stop()
+                    v.stop()
+                    position.stop()
                 }
             })
         }
@@ -314,18 +338,22 @@ class WaitUntilCrossingTest {
         var crossTime = Double.NaN
         var crossState = Double.NaN
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 10.0 }
+            override fun derivatives() {
+                x.rate = 10.0
+            }
         }
 
         runSimulation(endTime = 100.0) {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 100.0 - x.state }
                     crossTime = time()
                     crossState = x.state
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -357,11 +385,15 @@ class WaitUntilCrossingTest {
             maxRelError = 1e-8
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    y.start(); vy.start(); ballistics.start()
-                    hold(0.1)  // leave the launch point (y=0) first, so the wait is genuine
+                    y.start()
+                    vy.start()
+                    ballistics.start()
+                    hold(0.1) // leave the launch point (y=0) first, so the wait is genuine
                     waitUntilCrossing { y.state }
                     landTime = time()
-                    ballistics.stop(); y.stop(); vy.stop()
+                    ballistics.stop()
+                    y.stop()
+                    vy.stop()
                 }
             })
         }
@@ -375,7 +407,9 @@ class WaitUntilCrossingTest {
     fun timeDependentGuardIsRootFound() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var resumeTime = Double.NaN
 
@@ -383,10 +417,12 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 3.5 - time() }
                     resumeTime = time()
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -400,19 +436,23 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         val times = mutableListOf<Double>()
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
 
         runSimulation(endTime = 20.0) {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 3.0 - x.state }
                     times.add(time())
                     waitUntilCrossing { 7.0 - x.state }
                     times.add(time())
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -430,14 +470,17 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         var fired = false
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
 
         runSimulation(endTime = 5.0) {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 1000.0 - x.state }
                     fired = true
                 }
@@ -462,15 +505,18 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         var fired = false
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
 
         runSimulation(endTime = 5.0) {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
-                    waitUntilCrossing { 1.0 + x.state }  // positive and increasing
+                    x.start()
+                    motion.start()
+                    waitUntilCrossing { 1.0 + x.state } // positive and increasing
                     fired = true
                 }
             })
@@ -491,7 +537,9 @@ class WaitUntilCrossingTest {
     fun nonMonotoneGuardDippingWithinOneStepIsNotDetected() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }  // drives a single [0,1] step
+            override fun derivatives() {
+                x.rate = 1.0
+            } // drives a single [0,1] step
         }
         var fired = false
 
@@ -499,12 +547,14 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     // g(t) = (t - 0.5)^2 - 0.1: +0.15 at t=0 and t=1, negative only at t≈0.5
                     // (entirely inside the [0,1] step) — both endpoints are positive.
                     waitUntilCrossing { (time() - 0.5) * (time() - 0.5) - 0.1 }
-                    fired = true  // must NOT run: both endpoints are positive
-                    motion.stop(); x.stop()
+                    fired = true // must NOT run: both endpoints are positive
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -521,7 +571,9 @@ class WaitUntilCrossingTest {
     fun risingGuardReturnsImmediatelyForLevelButWaitsForEdge() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var levelResume = Double.NaN
         var edgeResume = Double.NaN
@@ -530,12 +582,14 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
-                    waitUntilCrossing { x.state - 3.0 }  // guard <= 0 now → immediate
+                    x.start()
+                    motion.start()
+                    waitUntilCrossing { x.state - 3.0 } // guard <= 0 now → immediate
                     levelResume = time()
-                    waitCrossing { x.state - 3.0 }       // edge: waits for the sign change at t=3
+                    waitCrossing { x.state - 3.0 } // edge: waits for the sign change at t=3
                     edgeResume = time()
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -551,7 +605,9 @@ class WaitUntilCrossingTest {
     fun mixedEdgeAndLevelNoticesFireIndependently() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var levelTime = Double.NaN
         var edgeTime = Double.NaN
@@ -560,9 +616,11 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     hold(20.0)
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
@@ -588,7 +646,9 @@ class WaitUntilCrossingTest {
     fun multipleLevelWaitersResumeAtTheirOwnThresholds() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var timeA = Double.NaN
         var timeB = Double.NaN
@@ -597,9 +657,11 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     hold(20.0)
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
@@ -631,7 +693,9 @@ class WaitUntilCrossingTest {
     fun twoWaitersCrossingWithinSameStepLoserNeitherLostNorSpuriouslyFired() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var timeA = Double.NaN
         var timeB = Double.NaN
@@ -640,9 +704,11 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     hold(20.0)
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
@@ -664,8 +730,8 @@ class WaitUntilCrossingTest {
         assertThat(abs(timeA - 5.5)).isLessThan(1e-6)
         // Loser fires at its OWN (later) crossing — not spuriously at the winner's time.
         assertThat(timeB.isNaN()).isFalse()
-        assertThat(timeB - timeA).isGreaterThan(1e-8)                    // not the same instant
-        assertThat(abs((timeB - timeA) - 1e-7)).isLessThan(1e-8)       // the genuine later crossing
+        assertThat(timeB - timeA).isGreaterThan(1e-8) // not the same instant
+        assertThat(abs((timeB - timeA) - 1e-7)).isLessThan(1e-8) // the genuine later crossing
     }
 
     /**
@@ -680,7 +746,10 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         val y = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0; y.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+                y.rate = 1.0
+            }
         }
         var timeA = Double.NaN
         var timeB = Double.NaN
@@ -689,20 +758,24 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); y.start(); motion.start()
+                    x.start()
+                    y.start()
+                    motion.start()
                     hold(20.0)
-                    motion.stop(); x.stop(); y.stop()
+                    motion.stop()
+                    x.stop()
+                    y.stop()
                 }
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    waitUntilCrossing { 5.5 - x.state }  // crosses earlier, at t = 5.5
+                    waitUntilCrossing { 5.5 - x.state } // crosses earlier, at t = 5.5
                     timeA = time()
                 }
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    waitUntilCrossing { 5.8 - y.state }  // crosses later, at t = 5.8
+                    waitUntilCrossing { 5.8 - y.state } // crosses later, at t = 5.8
                     timeB = time()
                 }
             })
@@ -714,7 +787,7 @@ class WaitUntilCrossingTest {
         // restores y to 5.5 (guard = 0.3 > 0). B must self-heal: stay parked at 5.5, fire at 5.8.
         assertThat(timeB.isNaN()).isFalse()
         assertThat(abs(timeB - 5.8)).isLessThan(1e-6)
-        assertThat(timeB - timeA).isGreaterThan(0.1)   // B did NOT fire at A's earlier time
+        assertThat(timeB - timeA).isGreaterThan(0.1) // B did NOT fire at A's earlier time
     }
 
     /**
@@ -727,7 +800,9 @@ class WaitUntilCrossingTest {
     fun multipleLevelWaitersOnSameThresholdResumeTogether() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var timeA = Double.NaN
         var timeB = Double.NaN
@@ -737,19 +812,30 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     hold(20.0)
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
-                override suspend fun actions() { waitUntilCrossing { 5.5 - x.state }; timeA = time() }
+                override suspend fun actions() {
+                    waitUntilCrossing { 5.5 - x.state }
+                    timeA = time()
+                }
             })
             Process.activate(object : Process() {
-                override suspend fun actions() { waitUntilCrossing { 5.5 - x.state }; timeB = time() }
+                override suspend fun actions() {
+                    waitUntilCrossing { 5.5 - x.state }
+                    timeB = time()
+                }
             })
             Process.activate(object : Process() {
-                override suspend fun actions() { waitUntilCrossing { 5.5 - x.state }; timeC = time() }
+                override suspend fun actions() {
+                    waitUntilCrossing { 5.5 - x.state }
+                    timeC = time()
+                }
             })
         }
 
@@ -766,7 +852,9 @@ class WaitUntilCrossingTest {
         val x = Variable(0.0)
         var resumedAfterTerminate = false
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
 
         lateinit var waiter: Process
@@ -774,9 +862,10 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             waiter = object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 5.0 - x.state }
-                    resumedAfterTerminate = true  // must NOT run
+                    resumedAfterTerminate = true // must NOT run
                 }
             }
             Process.activate(waiter)
@@ -792,27 +881,37 @@ class WaitUntilCrossingTest {
         assertThat(resumedAfterTerminate).isFalse()
     }
 
-    /** reactivate() clears the level crossing notice and resumes the process immediately. */
+    /**
+     * reactivate() clears the level crossing notice and resumes the process immediately — the
+     * interlockSim `Motor.terminate()` teardown shape: a train already stopped leaves the guard
+     * positive forever, so a plain `activate` would be absorbed and the process would stay parked
+     * with a live notice; `reactivate` is the documented cancellation. The guard crosses well past
+     * the run's end, so a notice leaked by the cancellation would never fire within the run —
+     * yet it would keep the process counted in `activeProcessCount()` and its guard evaluated
+     * after every event and every step, which is what the trailing assertions detect.
+     */
     @Test
-    fun reactivateClearsLevelCrossingNoticeAndResumes() = runTest {
+    fun reactivateClearsLevelCrossingNoticeAndResumes() = runTest(timeout = 10.seconds) {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var resumeTime = Double.NaN
         var resumeCount = 0
 
-        lateinit var waiter: Process
-        runSimulation(endTime = 20.0) {
-            dtMax = 1.0
-            waiter = object : Process() {
-                override suspend fun actions() {
-                    x.start(); motion.start()
-                    waitUntilCrossing { 1000.0 - x.state }  // never satisfied on its own
-                    resumeTime = time()
-                    resumeCount++
-                }
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                x.start()
+                motion.start()
+                waitUntilCrossing { 100.0 - x.state } // crosses at t=100 — past this run's end
+                resumeTime = time()
+                resumeCount++
             }
+        }
+        val sim = Simulation.create {
+            dtMax = 1.0
             Process.activate(waiter)
             Process.activate(object : Process() {
                 override suspend fun actions() {
@@ -821,9 +920,12 @@ class WaitUntilCrossingTest {
                 }
             })
         }
+        sim.run(20.0)
 
         assertThat(resumeTime).isEqualTo(2.0)
         assertThat(resumeCount).isEqualTo(1)
+        assertThat(waiter.isTerminated()).isTrue()
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
     }
 
     /** A process suspended in waitUntilCrossing() is counted by activeProcessCount(). */
@@ -831,7 +933,9 @@ class WaitUntilCrossingTest {
     fun activeProcessCountIncludesLevelCrossingWaiters() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 1.0 }
+            override fun derivatives() {
+                x.rate = 1.0
+            }
         }
         var countWhileWaiting = -1
         lateinit var sim: Simulation
@@ -840,9 +944,11 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
+                    x.start()
+                    motion.start()
                     waitUntilCrossing { 5.0 - x.state }
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
             Process.activate(object : Process() {
@@ -888,7 +994,7 @@ class WaitUntilCrossingTest {
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     waitUntilCrossing { Double.NaN }
-                    fired = true  // must NOT run
+                    fired = true // must NOT run
                 }
             })
         }
@@ -904,7 +1010,9 @@ class WaitUntilCrossingTest {
     fun zeroToleranceStillLocatesWithinStepCrossing() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 2.0 }
+            override fun derivatives() {
+                x.rate = 2.0
+            }
         }
         var crossTime = Double.NaN
 
@@ -912,10 +1020,12 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
-                    waitUntilCrossing(tolerance = 0.0) { 7.0 - x.state }  // crossing at t = 3.5
+                    x.start()
+                    motion.start()
+                    waitUntilCrossing(tolerance = 0.0) { 7.0 - x.state } // crossing at t = 3.5
                     crossTime = time()
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -931,7 +1041,9 @@ class WaitUntilCrossingTest {
     fun resumeStateIsConsistentWithResumeTime() = runTest {
         val x = Variable(0.0)
         val motion = object : Continuous() {
-            override fun derivatives() { x.rate = 2.0 }
+            override fun derivatives() {
+                x.rate = 2.0
+            }
         }
         var resumeTime = Double.NaN
         var stateAtResume = Double.NaN
@@ -940,11 +1052,13 @@ class WaitUntilCrossingTest {
             dtMax = 1.0
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    x.start(); motion.start()
-                    waitUntilCrossing { 8.0 - x.state }  // crossing at t = 4.0
+                    x.start()
+                    motion.start()
+                    waitUntilCrossing { 8.0 - x.state } // crossing at t = 4.0
                     resumeTime = time()
                     stateAtResume = x.state
-                    motion.stop(); x.stop()
+                    motion.stop()
+                    x.stop()
                 }
             })
         }
@@ -964,17 +1078,24 @@ class WaitUntilCrossingTest {
             val x = Variable(0.0)
             var crossTime = Double.NaN
             val motion = object : Continuous() {
-                override fun derivatives() { x.rate = 10.0 }
+                override fun derivatives() {
+                    x.rate = 10.0
+                }
             }
             runSimulation(endTime = 100.0) {
                 dtMax = 1.0
                 Process.activate(object : Process() {
                     override suspend fun actions() {
-                        x.start(); motion.start()
-                        if (level) waitUntilCrossing { 100.0 - x.state }
-                        else waitCrossing { 100.0 - x.state }
+                        x.start()
+                        motion.start()
+                        if (level) {
+                            waitUntilCrossing { 100.0 - x.state }
+                        } else {
+                            waitCrossing { 100.0 - x.state }
+                        }
                         crossTime = time()
-                        motion.stop(); x.stop()
+                        motion.stop()
+                        x.stop()
                     }
                 })
             }
@@ -1005,10 +1126,94 @@ class WaitUntilCrossingTest {
             })
             Process.activate(object : Process() {
                 override suspend fun actions() {
-                    level = -1.0  // same simulation time t=0, processed after the waiter
+                    level = -1.0 // same simulation time t=0, processed after the waiter
                 }
             })
         }
         assertThat(resumeTime).isEqualTo(0.0)
+    }
+
+    /**
+     * Regression guard for the crossing channel of Issue #73: an independent `activate` on a
+     * process parked in `waitUntilCrossing` must neither end the wait early nor strand its level
+     * notice. The wait resumes at the located crossing, once, exactly as if the `activate` had
+     * never happened.
+     */
+    @Test
+    fun activateWhileWaitingOnLevelCrossingDoesNotEndTheWaitEarly() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 1.0
+            }
+        }
+        var resumeCount = 0
+        var resumeTime = Double.NaN
+
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                x.start()
+                motion.start()
+                waitUntilCrossing { 5.0 - x.state }
+                resumeCount++
+                resumeTime = time()
+                motion.stop()
+                x.stop()
+            }
+        }
+        val sim = Simulation.create {
+            dtMax = 1.0
+            Process.activate(waiter)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    Process.activate(waiter) // parked in waitUntilCrossing — must be absorbed
+                }
+            })
+        }
+        sim.run(20.0)
+
+        assertThat(resumeCount).isEqualTo(1)
+        assertThat(abs(resumeTime - 5.0)).isLessThan(1e-6)
+        // Nothing stranded: the absorbed turn left no notice and no queued event behind.
+        assertThat(sim.activeProcessCount()).isEqualTo(0)
+    }
+
+    /**
+     * The interlockSim-measured exception to absorption (PR #1033, Train.Motor braking): the
+     * guard encodes its own cancellation and is satisfied in the very event that issues the
+     * `activate`. The post-event level re-test fires the notice too, so two turns exist — one
+     * ends the wait, the other survives as a surplus resume at the process's next suspension
+     * point, exactly like a confirmed-true `waitUntil` keeps its turn. The KDoc states this as
+     * the one case where a crossing wait does not absorb an `activate`.
+     *
+     * This is also the crossing-channel shape of the issue #73 conflation: with the notice's
+     * wake-up suppressed because the process already had a queued event, the surplus turn would
+     * never exist and the `surplus` log entry would be missing.
+     */
+    @Test
+    fun activateWithGuardSatisfiedInTheSameEventEndsTheWaitAndKeepsTheTurn() = runTest(timeout = 10.seconds) {
+        var level = 5.0
+        val log = mutableListOf<Pair<String, Double>>()
+        val waiter = object : Process() {
+            override suspend fun actions() {
+                log.add("wait" to time())
+                waitUntilCrossing { level - 3.0 } // satisfied once level <= 3.0
+                log.add("exit" to time())
+                passivate()
+                log.add("surplus" to time())
+            }
+        }
+        runSimulation(endTime = 20.0) {
+            Process.activate(waiter)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    level = 2.0 // the guard becomes satisfied in this same event
+                    Process.activate(waiter) // issued in the same event — not absorbed
+                }
+            })
+        }
+        assertThat(log).isEqualTo(listOf("wait" to 0.0, "exit" to 1.0, "surplus" to 1.0))
     }
 }

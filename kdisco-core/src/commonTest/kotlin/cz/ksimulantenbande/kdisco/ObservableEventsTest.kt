@@ -180,4 +180,56 @@ class ObservableEventsTest {
         // One for the parent, one for the in-run-spawned child — not three.
         assertThat(activations.size).isEqualTo(2)
     }
+
+    /**
+     * End-of-run cancellation is not a simulation event: a process still parked when `run` returns
+     * emits no [SimulationEvent.ProcessTerminated], whichever primitive it is parked on.
+     *
+     * `waitCrossing`/`waitUntilCrossing` used to be the exception — their cancellation handlers did
+     * not mark the process terminated, so the scheduler's completion path emitted the event for
+     * them and not for `hold`/`passivate`/`waitUntil`. Unifying the five suspension points on one
+     * scaffold made the majority behaviour apply to all of them.
+     */
+    @Test
+    fun endOfRunCancellationEmitsNoProcessTerminated() = runTest {
+        val events = mutableListOf<SimulationEvent>()
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 1.0
+            }
+        }
+        runSimulation(endTime = 5.0) {
+            dtMax = 1.0
+            onEvent { events.add(it) }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start()
+                    motion.start()
+                    hold(100.0)
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    passivate()
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntil { false }
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitCrossing { 1000.0 - x.state }
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    waitUntilCrossing { 1000.0 - x.state }
+                }
+            })
+        }
+        assertThat(events.filterIsInstance<SimulationEvent.ProcessTerminated>()).isEmpty()
+    }
 }

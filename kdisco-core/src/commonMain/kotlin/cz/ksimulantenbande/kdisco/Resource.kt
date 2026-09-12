@@ -84,10 +84,7 @@ class Resource(capacity: Int = 1) {
         if (alreadyGranted != null) {
             totalGranted -= alreadyGranted
             occupied += alreadyGranted
-            if (ctx.eventListeners.isNotEmpty()) {
-                val event = SimulationEvent.ResourceReserved(ctx.currentTime, current, this, alreadyGranted)
-                ctx.eventListeners.forEach { it(event) }
-            }
+            ctx.emit { SimulationEvent.ResourceReserved(ctx.currentTime, current, this, alreadyGranted) }
             return
         }
 
@@ -98,9 +95,7 @@ class Resource(capacity: Int = 1) {
         //  - truly-free capacity (excluding units pre-granted to reactivated waiters) suffices.
         if (waiters.empty() && occupied + totalGranted + amount <= capacity) {
             occupied += amount
-            if (ctx.eventListeners.isEmpty()) return
-            val event = SimulationEvent.ResourceReserved(ctx.currentTime, current, this, amount)
-            ctx.eventListeners.forEach { it(event) }
+            ctx.emit { SimulationEvent.ResourceReserved(ctx.currentTime, current, this, amount) }
             return
         }
 
@@ -124,10 +119,7 @@ class Resource(capacity: Int = 1) {
             ?: throw DiscoException("No current process")
         if (ctx.monitorActive) throw DiscoException("Illegal call of release (class Resource)")
         occupied -= amount
-        if (ctx.eventListeners.isNotEmpty()) {
-            val event = SimulationEvent.ResourceReleased(ctx.currentTime, current, this, amount)
-            ctx.eventListeners.forEach { it(event) }
-        }
+        ctx.emit { SimulationEvent.ResourceReleased(ctx.currentTime, current, this, amount) }
 
         reclaimTerminatedGrants()
 
@@ -150,7 +142,9 @@ class Resource(capacity: Int = 1) {
             }
             if (free <= 0) break
             val needed = waitAmounts[next]
-                ?: error("Invariant violation: process $next is in the waiters queue but has no recorded reserve amount")
+                ?: error(
+                    "Invariant violation: process $next is in the waiters queue but has no recorded reserve amount",
+                )
             if (needed > free) break
             free -= needed
             totalGranted += needed
