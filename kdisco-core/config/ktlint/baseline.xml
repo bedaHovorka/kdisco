@@ -56,16 +56,16 @@
         <error line="56" column="18" source="standard:backing-property-naming" />
         <error line="57" column="18" source="standard:backing-property-naming" />
         <error line="57" column="18" source="standard:backing-property-naming" />
-        <error line="290" column="36" source="standard:no-multi-spaces" />
-        <error line="371" column="26" source="standard:statement-wrapping" />
-        <error line="371" column="66" source="standard:statement-wrapping" />
-        <error line="405" column="66" source="standard:no-multi-spaces" />
-        <error line="406" column="70" source="standard:no-multi-spaces" />
-        <error line="407" column="44" source="standard:no-multi-spaces" />
-        <error line="437" column="5" source="standard:class-signature" />
-        <error line="438" column="5" source="standard:class-signature" />
-        <error line="438" column="22" source="standard:class-signature" />
-        <error line="438" column="22" source="standard:trailing-comma-on-declaration-site" />
+        <error line="270" column="36" source="standard:no-multi-spaces" />
+        <error line="351" column="26" source="standard:statement-wrapping" />
+        <error line="351" column="66" source="standard:statement-wrapping" />
+        <error line="385" column="66" source="standard:no-multi-spaces" />
+        <error line="386" column="70" source="standard:no-multi-spaces" />
+        <error line="387" column="44" source="standard:no-multi-spaces" />
+        <error line="417" column="5" source="standard:class-signature" />
+        <error line="418" column="5" source="standard:class-signature" />
+        <error line="418" column="22" source="standard:class-signature" />
+        <error line="418" column="22" source="standard:trailing-comma-on-declaration-site" />
     </file>
     <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/Resource.kt">
         <error line="153" column="26" source="standard:argument-list-wrapping" />
@@ -76,12 +76,12 @@
         <error line="21" column="17" source="standard:backing-property-naming" />
         <error line="62" column="22" source="standard:statement-wrapping" />
         <error line="62" column="57" source="standard:statement-wrapping" />
-        <error line="210" column="81" source="standard:function-expression-body" />
-        <error line="219" column="91" source="standard:function-expression-body" />
-        <error line="250" column="36" source="standard:function-expression-body" />
-        <error line="255" column="35" source="standard:function-expression-body" />
-        <error line="257" column="1" source="standard:indent" />
-        <error line="258" column="1" source="standard:indent" />
+        <error line="202" column="81" source="standard:function-expression-body" />
+        <error line="211" column="91" source="standard:function-expression-body" />
+        <error line="242" column="36" source="standard:function-expression-body" />
+        <error line="247" column="35" source="standard:function-expression-body" />
+        <error line="249" column="1" source="standard:indent" />
+        <error line="250" column="1" source="standard:indent" />
     </file>
     <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/SimulationContext.kt">
         <error line="126" column="5" source="standard:class-signature" />
@@ -163,13 +163,13 @@
         <error line="229" column="63" source="standard:statement-wrapping" />
         <error line="232" column="50" source="standard:statement-wrapping" />
         <error line="232" column="63" source="standard:statement-wrapping" />
-        <error line="309" column="43" source="standard:no-multi-spaces" />
-        <error line="315" column="50" source="standard:no-multi-spaces" />
-        <error line="338" column="46" source="standard:no-multi-spaces" />
-        <error line="358" column="48" source="standard:no-multi-spaces" />
-        <error line="359" column="33" source="standard:no-multi-spaces" />
-        <error line="364" column="46" source="standard:no-multi-spaces" />
-        <error line="405" column="45" source="standard:trailing-comma-on-call-site" />
+        <error line="252" column="43" source="standard:no-multi-spaces" />
+        <error line="258" column="50" source="standard:no-multi-spaces" />
+        <error line="281" column="46" source="standard:no-multi-spaces" />
+        <error line="301" column="48" source="standard:no-multi-spaces" />
+        <error line="302" column="33" source="standard:no-multi-spaces" />
+        <error line="307" column="46" source="standard:no-multi-spaces" />
+        <error line="348" column="45" source="standard:trailing-comma-on-call-site" />
     </file>
     <file name="src/commonTest/kotlin/cz/ksimulantenbande/kdisco/RandomTest.kt">
         <error line="8" column="1" source="standard:no-unused-imports" />

@@ -167,10 +167,7 @@ class Simulation internal constructor() {
 
                 val cont = process.continuation
                 if (cont != null) {
-                    // Drop a spurious resume: an event queued for some other reason (e.g. the
-                    // surplus turn an activate granted during a waitUntil) delivered while the
-                    // process is mid-hold and its own hold event is still queued.
-                    // Process.reactivate removes that event first, so it still cuts a hold short.
+                    // A spurious resume mid-hold is dropped, not delivered — see Process.holdDue.
                     val spurious = process.queuedEvents > 0 && context.currentTime < process.holdDue
                     if (!spurious) {
                         // Resume existing coroutine (returning from hold/passivate)

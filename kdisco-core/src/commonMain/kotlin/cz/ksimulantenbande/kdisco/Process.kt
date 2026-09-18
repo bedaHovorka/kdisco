@@ -110,10 +110,21 @@ abstract class Process : Link() {
      * Simulation time at which this process's current [hold] is due to end, or
      * [Double.NEGATIVE_INFINITY] when it is not holding.
      *
-     * The scheduler uses it, together with [queuedEvents], to recognise an event delivered to a
-     * mid-[hold] process for some other reason (a *spurious* resume) and drop it instead of
-     * cutting the hold short. Cleared by the scheduler on every genuine resume, so it is never
-     * stale.
+     * The scheduler drops an event for this process while
+     * `queuedEvents > 0 && currentTime < holdDue`: the hold's own event is still queued and not
+     * yet due, so the one being delivered is a *spurious* resume — e.g. a surplus turn left over
+     * from an earlier wait (issue #77). Like a wait absorbing a turn, a dropped event still
+     * advances the clock and fires the `beforeEvent` hook.
+     *
+     * The check relies on an invariant. A process in [hold] is [ProcessState.SCHEDULED], so
+     * [activate] is a no-op on it; it has no notice registered, so no release can be queued for it;
+     * and [reactivate] removes its queued events before rescheduling it. Together these make
+     * `queuedEvents > 0` mean "the hold's own event is still queued". A change that breaks any of
+     * them — a notice on a holding process, an interrupt API, a looser [activate] guard — would
+     * make the check drop genuine resumes.
+     *
+     * Cleared by the scheduler on every genuine resume. A process terminated or cancelled mid-hold
+     * keeps it, harmlessly: it is never resumed again.
      */
     internal var holdDue: Double = Double.NEGATIVE_INFINITY
 
@@ -162,12 +173,11 @@ abstract class Process : Link() {
     /**
      * Suspends this process for the specified simulation time duration.
      *
-     * A *spurious* resume — an event delivered to this process for some other reason, e.g. the
-     * surplus turn an [activate] granted while the process was parked in [waitUntil], left over
-     * once the wait ended at that same instant — does not shorten the hold. The scheduler drops
-     * such an event while the clock has not reached the hold's due time and this process's own
-     * hold event is still queued. [Process.reactivate] removes that event before rescheduling, so
-     * it still cuts a hold short as documented.
+     * Only the hold's own event, or a [Process.reactivate] issued while the process is in the hold,
+     * ends it. Any other event delivered in the meantime — a *spurious* resume, e.g. the surplus
+     * turn an [activate] granted while the process was parked in [waitUntil] — is dropped and does
+     * not shorten the hold. That includes a turn queued before the hold began, such as a
+     * `reactivate(this)` issued by the running process itself.
      */
     suspend fun hold(duration: Double) {
         require(duration >= 0.0) { "Duration must be non-negative, got $duration" }
@@ -283,8 +293,9 @@ abstract class Process : Link() {
      * crossing and nowhere else. That holds only *while the notice is registered*: if the notice
      * fires with an activate-queued turn still outstanding — e.g. a crossing located before a
      * delayed `activate`'s event is taken — the wait ends at the crossing and the outstanding turn
-     * survives as a surplus resume at the process's next suspension point, the same way a
-     * confirmed-true [waitUntil] keeps its turn.
+     * survives as a surplus resume at the process's next suspension point (a [hold] not yet due
+     * absorbs it — see [Process.activate]), the same way a confirmed-true [waitUntil] keeps its
+     * turn.
      *
      * @param tolerance absolute `|g|` threshold used to terminate root-finding early. A value of
      *   0.0 disables the early-out and relies on the bisection bracket collapsing to
@@ -341,8 +352,8 @@ abstract class Process : Link() {
      * while the level notice is still registered, so the wait still ends at the crossing. One
      * exception, by design: if the guard becomes satisfied in the very event that issues the
      * activate, the post-event level re-test fires the notice too — the wait ends, and the turn
-     * survives as a surplus resume at the process's next suspension point, exactly like a
-     * confirmed-true [waitUntil].
+     * survives as a surplus resume at the process's next suspension point (a [hold] not yet due
+     * absorbs it — see [Process.activate]), exactly like a confirmed-true [waitUntil].
      *
      * **Known limitation**: as with [waitCrossing], the guard is compared at the start and end of
      * each accepted integration step (plus the post-step/post-event level re-test). A guard that
@@ -560,10 +571,13 @@ abstract class Process : Link() {
          * Use [reactivate] when the intent is to *cancel* the pending wait and resume now.
          *
          * A surviving extra turn is delivered at whatever suspension point the process reaches
-         * next. That is clean when the process passivates (the shape in issue #73). If it is a
-         * [hold], the hold returns at once and its own event stays queued, so the surplus resume
-         * moves on to the following suspension point — see
-         * `ProcessTest.extraTurnGrantedDuringWaitUntilLandsOnTheNextSuspensionPoint`.
+         * next. [passivate] consumes it — the shape in issue #73. A [hold] that is not yet due
+         * absorbs it (issue #77): the hold runs its full duration and the turn is gone — see
+         * `ProcessTest.extraTurnGrantedDuringWaitUntilDoesNotShortenTheFollowingHold`.
+         *
+         * So treat `activate` as a *nudge*, not a message: pair it with state the target re-reads
+         * before it parks, and do not rely on the turn itself arriving. A turn that would land
+         * inside a [hold] is dropped, exactly like an `activate` issued mid-hold.
          */
         fun activate(process: Process, delay: Double = 0.0) {
             require(delay >= 0.0) { "Delay must be non-negative, got $delay" }
