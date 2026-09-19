@@ -194,7 +194,7 @@ the setting is accepted. Verify against an analysis result instead:
   `ignoredConditions` (true means the gate was waived) and the individual condition
   statuses.
 - Read `new_coverage` / `new_uncovered_conditions` from
-  `api/measures/component?component=bedaHovorka_kdisco&metricKeys=new_coverage,...`
+  `api/measures/component?component=bedaHovorka_kdisco&metricKeys=new_coverage,new_uncovered_conditions`
   rather than trusting a green tick.
 
 Note that a project's **first** analysis passes new-code conditions for free
