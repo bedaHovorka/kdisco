@@ -30,7 +30,7 @@ class SimulationResumeTest {
         val name: String,
         val interval: Double,
         val stopBefore: Double,
-        val log: MutableList<String>
+        val log: MutableList<String>,
     ) : Process() {
         override suspend fun actions() {
             while (time() < stopBefore) {
@@ -57,8 +57,8 @@ class SimulationResumeTest {
      */
     @Test
     fun resumedSimulationProducesIdenticalEventsToBaseline() = runTest {
-        val log1 = mutableListOf<String>()   // baseline
-        val log2 = mutableListOf<String>()   // partial + resumed
+        val log1 = mutableListOf<String>() // baseline
+        val log2 = mutableListOf<String>() // partial + resumed
 
         val stopBefore = 15.0
         val endTime = 20.0
@@ -82,14 +82,14 @@ class SimulationResumeTest {
         partialSim.run(captureTime)
 
         val capturedEvents = partialSim.pendingEvents()
-        val capturedClock  = partialSim.time()
-        val capturedRng    = partialSim.captureRandom()
+        val capturedClock = partialSim.time()
+        val capturedRng = partialSim.captureRandom()
 
         // --- Reconstruct processes and resume ---
         // Map each captured process reference to a freshly constructed equivalent.
         val processMap: Map<Process, Process> = mapOf(
             timerA to Timer("A", 2.0, stopBefore, log2),
-            timerB to Timer("B", 3.0, stopBefore, log2)
+            timerB to Timer("B", 3.0, stopBefore, log2),
         )
         val resumedEvents = capturedEvents.map { e ->
             e.copy(process = processMap.getValue(e.process))
@@ -124,7 +124,7 @@ class SimulationResumeTest {
             override suspend fun actions() {
                 while (time() < endTime - 1.0) {
                     val draw = random().uniform(0.0, 1.0)
-                    localLog.add("$id@${time()}=${draw}")
+                    localLog.add("$id@${time()}=$draw")
                     hold(random().uniform(1.0, 2.0))
                 }
             }
@@ -146,13 +146,13 @@ class SimulationResumeTest {
         partialSim.run(captureTime)
 
         val capturedEvents = partialSim.pendingEvents()
-        val capturedClock  = partialSim.time()
-        val capturedRng    = partialSim.captureRandom()
+        val capturedClock = partialSim.time()
+        val capturedRng = partialSim.captureRandom()
 
         // --- Resume ---
         val processMap: Map<Process, Process> = mapOf(
             w0 to RandomWorker(0, log2),
-            w1 to RandomWorker(1, log2)
+            w1 to RandomWorker(1, log2),
         )
         val resumedEvents = capturedEvents.map { e ->
             e.copy(process = processMap.getValue(e.process))
@@ -181,7 +181,7 @@ class SimulationResumeTest {
         val resumedSim = Simulation.resume(
             events = listOf(PendingEvent(process = sentinel, time = 42.0, priority = false, insertionOrder = 0L)),
             clockTime = 42.0,
-            randomState = rngState
+            randomState = rngState,
         )
         resumedSim.run(100.0)
 
@@ -198,17 +198,21 @@ class SimulationResumeTest {
 
         val processA = object : Process() {
             // Use toInt() to avoid JS vs JVM Double.toString() difference ("10" vs "10.0")
-            override suspend fun actions() { log.add("A@${time().toInt()}") }
+            override suspend fun actions() {
+                log.add("A@${time().toInt()}")
+            }
         }
         val processB = object : Process() {
-            override suspend fun actions() { log.add("B@${time().toInt()}") }
+            override suspend fun actions() {
+                log.add("B@${time().toInt()}")
+            }
         }
 
         val rngState = Random().captureState()
         val resumedSim = Simulation.resume(
-            events   = listOf(PendingEvent(processA, 10.0, priority = false, insertionOrder = 0L)),
+            events = listOf(PendingEvent(processA, 10.0, priority = false, insertionOrder = 0L)),
             clockTime = 10.0,
-            randomState = rngState
+            randomState = rngState,
         ) {
             // additional process activated in the block, scheduled at t=10 + 5 = 15
             Process.activate(processB, delay = 5.0)
@@ -225,7 +229,7 @@ class SimulationResumeTest {
     @Test
     fun randomStateCaptureAndRestoreReplayIdenticalSequence() {
         val rng = Random(99L)
-        repeat(10) { rng.uniform(0.0, 1.0) }  // advance state
+        repeat(10) { rng.uniform(0.0, 1.0) } // advance state
 
         val state = rng.captureState()
         val before = List(20) { rng.uniform(0.0, 1.0) }
