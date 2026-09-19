@@ -20,6 +20,12 @@ class Simulation internal constructor() {
     internal val context = SimulationContext()
     private var _hasRun = false
 
+    /**
+     * The queue as it stood when [run] finished, taken before the end-of-run cleanup empties it.
+     * `null` until a run has finished. See [pendingEvents].
+     */
+    private var finalPendingEvents: List<PendingEvent>? = null
+
     // --- Continuous integration parameters ---
 
     /** Minimum integration step size. Must be > 0 and <= [dtMax]. */
@@ -59,7 +65,9 @@ class Simulation internal constructor() {
     /** The numerical integrator used for continuous variable integration. Defaults to [RKF45Integrator]. */
     internal var integrator: Integrator
         get() = context.monitor.integrator
-        set(value) { context.monitor.integrator = value }
+        set(value) {
+            context.monitor.integrator = value
+        }
 
     /** The random generator used by this simulation. Processes should use this for reproducible draws. */
     val random: Random get() = context.random
@@ -106,11 +114,13 @@ class Simulation internal constructor() {
         val simScope = CoroutineScope(Dispatchers.Unconfined + simJob)
 
         try {
-            // Move pending activations into the event queue
+            // Move pending activations into the event queue.
+            // pending.delay is a relative delay from currentTime (which may be non-zero for
+            // resumed simulations), so we schedule at currentTime + pending.delay.
             val activations = context.pendingActivations.toList()
             context.pendingActivations.clear()
             for (pending in activations) {
-                context.eventQueue.schedule(pending.process, pending.delay)
+                context.eventQueue.schedule(pending.process, context.currentTime + pending.delay)
             }
 
             // Main scheduler loop.
@@ -151,15 +161,13 @@ class Simulation internal constructor() {
                     break
                 }
 
-                // Now pop and process the event.
+                // Stop before processing any event whose time exceeds endTime. It stays queued, so
+                // the end-of-run snapshot behind pendingEvents() includes it — otherwise a
+                // checkpoint taken after a bounded run would silently omit the next event due.
+                if (next.time > endTime) break
+
+                // Pop and process the event.
                 val event = context.eventQueue.removeFirst() ?: break
-                if (event.time > endTime) {
-                    // Put it back before stopping. Its process is in exactly the position of the
-                    // ones still queued behind it — holding a turn the run will never deliver —
-                    // and the cleanup below only sees what is in the queue.
-                    context.eventQueue.schedule(event.process, event.time)
-                    break
-                }
 
                 context.currentTime = event.time
                 val process = event.process
@@ -216,6 +224,9 @@ class Simulation internal constructor() {
             context.isRunning = false
             context.currentProcess = null
             Process.activeContext = previousContext
+            // Capture the queue for pendingEvents() before anything below empties it: cancelling
+            // a parked hold() removes its event, and the cleanup after that clears the rest.
+            finalPendingEvents = context.eventQueue.snapshot()
             // Cancel any remaining suspended coroutines (passivated processes that
             // were never reactivated, or processes whose hold() time is past endTime).
             simScope.cancel()
@@ -295,9 +306,11 @@ class Simulation internal constructor() {
      * events in LIFO order ahead of normal events. The queue itself is not mutated.
      *
      * This method is safe to call at any point — before, during (e.g. from a [run]
-     * [beforeEvent] hook), or after [run] has completed.
+     * [beforeEvent] hook), or after [run] has completed. Once [run] has finished it returns the
+     * events that were still queued when the run ended — the future work a checkpoint needs —
+     * even though the queue itself is then emptied (see [scheduledEventCount]).
      */
-    fun pendingEvents(): List<PendingEvent> = context.eventQueue.snapshot()
+    fun pendingEvents(): List<PendingEvent> = finalPendingEvents ?: context.eventQueue.snapshot()
 
     /**
      * Number of outstanding wake-ups: pending activations, queued events, and registered wait
@@ -323,6 +336,14 @@ class Simulation internal constructor() {
     /** `true` if the simulation has been requested to stop. */
     fun isStopRequested(): Boolean = context.stopRequested
 
+    /**
+     * Captures the current state of this simulation's random number generator.
+     *
+     * The returned [RandomState] can be passed to [Simulation.resume] so that the
+     * resumed run produces an identical sequence of random draws from the capture point.
+     */
+    fun captureRandom(): RandomState = context.random.captureState()
+
     companion object {
         /**
          * Creates a new [Simulation] and runs [setup] with it as the receiver.
@@ -341,6 +362,88 @@ class Simulation internal constructor() {
             Process.activeContext = simulation.context
             try {
                 simulation.setup()
+            } finally {
+                Process.activeContext = previousContext
+            }
+            return simulation
+        }
+
+        /**
+         * Reconstructs a [Simulation] from a previously captured checkpoint and returns it
+         * ready to [run] onward from that point.
+         *
+         * Given the same [events], [clockTime], and [randomState] that were captured from an
+         * original run, the resumed simulation produces event-for-event identical output to
+         * what the original simulation would have produced past the capture point — provided
+         * the caller supplies equivalent [Process] instances (i.e. objects whose [Process.actions]
+         * will continue the same work from the capture point onwards).
+         *
+         * **Process identity**: The [Process] instances inside [events] are the *new* instances
+         * for this resumed run, supplied by the caller. Capture via [pendingEvents] returns
+         * references to the original run's processes; the caller is responsible for mapping
+         * those to freshly constructed equivalents before calling this factory.
+         *
+         * **How to capture**:
+         * ```kotlin
+         * val sim = simulation(seed = mySeed) { /* activate processes */ }
+         * sim.run(captureTime)
+         * val snapshot = Triple(sim.pendingEvents(), sim.time(), sim.captureRandom())
+         * ```
+         *
+         * **How to resume**:
+         * ```kotlin
+         * val (events, clockTime, rngState) = snapshot
+         * val resumedEvents = events.map { it.copy(process = newProcessFor(it.process)) }
+         * val resumedSim = Simulation.resume(resumedEvents, clockTime, rngState)
+         * resumedSim.run(endTime)
+         * ```
+         *
+         * @param events The pre-populated event queue, in any order (each entry is inserted at
+         *   its correct position). Each [PendingEvent] must reference a freshly constructed
+         *   [Process] instance; the `priority` and `insertionOrder` carried by the snapshot are
+         *   preserved, so equal-time ordering matches the captured run exactly.
+         * @param clockTime The simulation clock value at the capture point (from [time]).
+         * @param randomState The RNG state at the capture point (from [captureRandom]).
+         * @param block Optional configuration block — called with the new [Simulation] as
+         *   receiver. Use it to register event listeners or adjust integration parameters.
+         *   Any [Process.activate] calls inside [block] are scheduled relative to [clockTime].
+         */
+        fun resume(
+            events: List<PendingEvent>,
+            clockTime: Double,
+            randomState: RandomState,
+            block: (Simulation.() -> Unit)? = null,
+        ): Simulation {
+            require(clockTime >= 0.0) { "clockTime must be non-negative, got $clockTime" }
+            val simulation = Simulation()
+            simulation.context.currentTime = clockTime
+            simulation.context.random.restoreState(randomState)
+
+            // Pre-populate the event queue with absolute times from the captured snapshot.
+            // Processes must reference the caller's newly constructed instances.
+            //
+            // Restored via EventQueue.restore rather than schedule: each event keeps its
+            // captured priority flag AND its captured insertionOrder, so equal-time ordering
+            // is reproduced exactly. Re-scheduling instead would allocate fresh counters and
+            // reverse equal-time priority (LIFO) groups. Insertion is position-independent,
+            // so [events] may be supplied in any order.
+            val previousContext = Process.activeContext
+            Process.activeContext = simulation.context
+            try {
+                for (event in events) {
+                    require(event.time >= clockTime) {
+                        "Event time ${event.time} is before clockTime $clockTime"
+                    }
+                    event.process.context = simulation.context
+                    event.process._state = ProcessState.SCHEDULED
+                    simulation.context.eventQueue.restore(
+                        event.process,
+                        event.time,
+                        event.priority,
+                        event.insertionOrder,
+                    )
+                }
+                block?.invoke(simulation)
             } finally {
                 Process.activeContext = previousContext
             }
