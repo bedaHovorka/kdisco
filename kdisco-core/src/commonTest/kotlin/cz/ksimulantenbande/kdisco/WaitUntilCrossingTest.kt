@@ -1216,4 +1216,46 @@ class WaitUntilCrossingTest {
         }
         assertThat(log).isEqualTo(listOf("wait" to 0.0, "exit" to 1.0, "surplus" to 1.0))
     }
+
+    /**
+     * The crossing-wait route into a `hold` (Issue #77): the same surplus as above, but the next
+     * suspension point is a `hold`. The activate's turn pops first and ends the wait, so the
+     * surplus is the notice's release. It is a spurious resume mid-hold and is dropped, so the
+     * hold runs its full duration and `passivate()` is reached only by the later `activate`.
+     *
+     * This is a kDisco contract test, not a model of interlockSim's `Train.Motor`: Motor never
+     * holds, and its cancel shape (crossing wait → `passivate`) is the test above.
+     */
+    @Test
+    fun activateWithGuardSatisfiedInTheSameEventEndsTheWaitAndDoesNotShortenTheFollowingHold() =
+        runTest(timeout = 10.seconds) {
+            var level = 5.0
+            val log = mutableListOf<Pair<String, Double>>()
+            val waiter = object : Process() {
+                override suspend fun actions() {
+                    log.add("wait" to time())
+                    waitUntilCrossing { level - 3.0 } // satisfied once level <= 3.0
+                    log.add("exit" to time())
+                    hold(5.0)
+                    log.add("holdDone" to time())
+                    passivate()
+                    log.add("woken" to time())
+                }
+            }
+            runSimulation(endTime = 20.0) {
+                Process.activate(waiter)
+                Process.activate(object : Process() {
+                    override suspend fun actions() {
+                        hold(1.0)
+                        level = 2.0 // the guard becomes satisfied in this same event
+                        Process.activate(waiter) // issued in the same event — not absorbed
+                        hold(9.0)
+                        Process.activate(waiter) // t=10: still wakeable after the drop
+                    }
+                })
+            }
+            assertThat(log).isEqualTo(
+                listOf("wait" to 0.0, "exit" to 1.0, "holdDone" to 6.0, "woken" to 10.0),
+            )
+        }
 }

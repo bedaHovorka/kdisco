@@ -167,10 +167,15 @@ class Simulation internal constructor() {
 
                 val cont = process.continuation
                 if (cont != null) {
-                    // Resume existing coroutine (returning from hold/passivate)
-                    process.continuation = null
-                    process._state = ProcessState.RUNNING
-                    cont.resumeWith(Result.success(Unit))
+                    // A spurious resume mid-hold is dropped, not delivered — see Process.holdDue.
+                    val spurious = process.queuedEvents > 0 && context.currentTime < process.holdDue
+                    if (!spurious) {
+                        // Resume existing coroutine (returning from hold/passivate)
+                        process.continuation = null
+                        process.holdDue = Double.NEGATIVE_INFINITY
+                        process._state = ProcessState.RUNNING
+                        cont.resumeWith(Result.success(Unit))
+                    }
                 } else {
                     // First activation — launch new coroutine for process.actions().
                     // Guard against re-launching if the process was terminated and then

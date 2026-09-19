@@ -127,8 +127,9 @@ internal class SimulationContext {
             // resumes owed to the same process (issue #73): the notice says "your wait is over",
             // an independent Process.activate says "here is another turn". Letting a queued event
             // stand in for the notice's wake-up silently spends one intent on the other. A surplus
-            // event is harmless — Simulation.run resumes a stored continuation when there is one
-            // and refuses to relaunch a terminated process.
+            // event is harmless — Simulation.run resumes a stored continuation when there is one,
+            // drops the event when it would cut a hold short (see Process.holdDue), and refuses to
+            // relaunch a terminated process.
             eventQueue.schedule(notice.process, currentTime, noticeRelease = true)
         }
         return released.size

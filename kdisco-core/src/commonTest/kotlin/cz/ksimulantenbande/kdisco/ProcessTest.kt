@@ -265,27 +265,29 @@ class ProcessTest {
         assertThat(actionsRunCount).isEqualTo(1) // actions() must not run twice
     }
 
+    /** Reactivating a process mid-[Process.hold] cuts the hold short, once — Issue #77 keeps that. */
     @Test
     fun reactivateAlreadyScheduledProcessNoDuplicate() = runTest {
-        var resumeCount = 0
+        val resumes = mutableListOf<Double>()
         val sim = Simulation.create {
             val p = object : Process() {
                 override suspend fun actions() {
                     hold(5.0)
-                    resumeCount++
+                    resumes.add(time())
                 }
             }
             Process.activate(p)
             val reactivator = object : Process() {
                 override suspend fun actions() {
-                    // p is scheduled to resume at t=5; reactivate it at t=0
+                    hold(2.0)
+                    // p is scheduled to resume at t=5; reactivate it at t=2
                     Process.reactivate(p)
                 }
             }
             Process.activate(reactivator)
         }
         sim.run(10.0)
-        assertThat(resumeCount).isEqualTo(1) // resumed exactly once
+        assertThat(resumes).containsExactly(2.0) // resumed exactly once, at the reactivate
     }
 
     @Test
@@ -498,12 +500,15 @@ class ProcessTest {
                 times.add(time())
             }
         }
-        runSimulation(endTime = 10.0) {
+        val sim = Simulation.create {
             Process.activate(p)
             Process.activate(p, 0.5) // duplicate — must be a no-op, not an earlier schedule
         }
-        // Without the guard the second pending activation becomes an event at t=0.5 that
-        // resumes the process mid-hold, so it would complete at 0.5 instead of 1.0.
+        // Without the guard the second pending activation would become a second wake-up. Count it
+        // directly: once the run starts, hold() drops the resulting t=0.5 event as a spurious
+        // resume (Issue #77), so the completion time alone can no longer tell.
+        assertThat(sim.activeProcessCount()).isEqualTo(1)
+        sim.run(10.0)
         assertThat(times).isEqualTo(listOf(1.0))
         assertThat(p.isTerminated()).isTrue()
     }
@@ -511,6 +516,7 @@ class ProcessTest {
     @Test
     fun duplicateActivateAtSameInstantResumesPassivatedProcessOnce() = runTest(timeout = 10.seconds) {
         val times = mutableListOf<Double>()
+        var queued = -1
         val worker = object : Process() {
             override suspend fun actions() {
                 passivate()
@@ -521,17 +527,21 @@ class ProcessTest {
         val resumer = object : Process() {
             override suspend fun actions() {
                 hold(2.0)
+                val before = Process.scheduledEventCount()
                 // Two resume paths firing at the same instant — only one event may result
                 Process.activate(worker)
                 Process.activate(worker)
+                queued = Process.scheduledEventCount() - before
             }
         }
         runSimulation(endTime = 10.0) {
             Process.activate(worker)
             Process.activate(resumer)
         }
-        // Without the guard the duplicate event at t=2 resumes the worker mid-hold,
-        // so it would finish at 2.0 instead of 3.0.
+        // Without the guard a duplicate event would be queued at t=2. Count it directly: the
+        // worker's hold(1.0) drops it as a spurious resume (Issue #77), so the finishing time alone
+        // can no longer tell.
+        assertThat(queued).isEqualTo(1)
         assertThat(times).isEqualTo(listOf(3.0))
         assertThat(worker.isTerminated()).isTrue()
     }
@@ -545,16 +555,22 @@ class ProcessTest {
                 times.add(time())
             }
         }
+        var queued = -1
         val meddler = object : Process() {
             override suspend fun actions() {
                 hold(2.0)
+                val before = Process.scheduledEventCount()
                 Process.activate(worker, delay = 1.0) // worker already scheduled — no-op
+                queued = Process.scheduledEventCount() - before
             }
         }
         runSimulation(endTime = 100.0) {
             Process.activate(worker)
             Process.activate(meddler)
         }
+        // Counted directly: a duplicate at t=3 would be dropped by the worker's hold as a spurious
+        // resume (Issue #77), so the finishing time alone can no longer tell.
+        assertThat(queued).isEqualTo(0)
         assertThat(times).isEqualTo(listOf(10.0))
     }
 
@@ -928,7 +944,9 @@ class ProcessTest {
      * separate registry that `run` converts into events. Before `reactivate` cleared it, the
      * original `activate(p, 0.5)` still became an event at t=0.5 *in addition* to the
      * current-time turn `reactivate` scheduled — a duplicate that resumed the process mid-`hold`
-     * and finished it at 0.5 instead of 2.0, violating reactivate's no-duplicate contract.
+     * and finished it at 0.5 instead of 2.0, violating reactivate's no-duplicate contract. Since
+     * Issue #77 `hold` drops such a duplicate as a spurious resume, so the wake-ups are counted
+     * directly before the run as well.
      */
     @Test
     fun reactivateBeforeRunDropsTheReplacedPendingActivation() = runTest(timeout = 10.seconds) {
@@ -944,6 +962,7 @@ class ProcessTest {
             Process.activate(p, 0.5)
             Process.reactivate(p) // supersedes the pending activation; must not leave it behind
         }
+        assertThat(sim.activeProcessCount()).isEqualTo(1) // one wake-up, not the pending one too
         sim.run(10.0)
 
         assertThat(times).isEqualTo(listOf(0.0, 2.0))
@@ -1091,45 +1110,116 @@ class ProcessTest {
     }
 
     /**
-     * Where a surviving extra turn lands. `activate` on a wait-parked process queues a turn that is
-     * delivered at whatever suspension point the process reaches next. When that is `passivate` —
-     * the shape in Issue #73 — it is consumed cleanly. When it is a `hold`, the hold returns at once
-     * and its own event stays queued, so the surplus resume moves on to the following suspension
-     * point.
+     * Where a surviving extra turn lands when the next suspension point is a `hold` (Issue #77).
      *
-     * This pins the current semantics rather than endorsing them; `hold` does not yet have the
-     * spurious-resume discipline `waitUntil` and the crossing waits now have.
+     * At t=1 a disturber activates the holder while it is parked in `waitUntil` and makes the
+     * condition true, so the wait ends with one wake-up to spare (Issue #73). The holder then runs
+     * `hold(holdFor)` and `passivate()`, and a waker activates it at t=10.
+     *
+     * With `activateDelay = 0` the activate's turn pops first and ends the wait, so the surplus is
+     * the notice's release; with a positive delay the release ends the wait and the surplus is the
+     * delayed turn. The waker checks that the process can still be woken after a surplus is
+     * dropped: a counter left wrong would make `activate` think it already has a turn. When nothing
+     * is dropped the holder has finished by t=10 and the waker is a no-op.
      */
-    @Test
-    fun extraTurnGrantedDuringWaitUntilLandsOnTheNextSuspensionPoint() = runTest {
+    private suspend fun surplusTurnThenHold(holdFor: Double, activateDelay: Double): List<Pair<String, Double>> {
         val log = mutableListOf<Pair<String, Double>>()
         var running = false
-        val worker = object : Process() {
+        val holder = object : Process() {
             override suspend fun actions() {
                 running = true
                 waitUntil { !running }
                 log.add("waitDone" to time())
-                hold(5.0)
+                hold(holdFor)
                 log.add("holdDone" to time())
                 passivate()
                 log.add("afterPassivate" to time())
             }
         }
         runSimulation(endTime = 60.0) {
-            Process.activate(worker)
+            Process.activate(holder)
             Process.activate(object : Process() {
                 override suspend fun actions() {
                     hold(1.0)
+                    Process.activate(holder, activateDelay)
                     running = false
-                    Process.activate(worker)
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(10.0)
+                    Process.activate(holder)
                 }
             })
         }
-        // hold(5.0) is cut short by the surplus resume at t=1; the event it queued still fires at
-        // t=6 and is absorbed by passivate().
-        assertThat(log).isEqualTo(
-            listOf("waitDone" to 1.0, "holdDone" to 1.0, "afterPassivate" to 6.0),
-        )
+        return log
+    }
+
+    /**
+     * A surplus due before the hold ends is a spurious resume: the hold's own event is still queued,
+     * so the scheduler drops the surplus instead of letting it cut the hold short and propagate to
+     * the following suspension point. Only the waker's turn reaches `passivate()`.
+     */
+    @Test
+    fun extraTurnGrantedDuringWaitUntilDoesNotShortenTheFollowingHold() = runTest {
+        assertThat(surplusTurnThenHold(holdFor = 5.0, activateDelay = 0.0))
+            .containsExactly("waitDone" to 1.0, "holdDone" to 6.0, "afterPassivate" to 10.0)
+    }
+
+    /** The owned-turn counterpart: a delayed turn that falls inside the hold is dropped too. */
+    @Test
+    fun delayedSurplusTurnInsideTheHoldIsAbsorbed() = runTest {
+        assertThat(surplusTurnThenHold(holdFor = 5.0, activateDelay = 2.0))
+            .containsExactly("waitDone" to 1.0, "holdDone" to 6.0, "afterPassivate" to 10.0)
+    }
+
+    /** A surplus due after the hold is not spurious: the hold ends on time, the turn lands after. */
+    @Test
+    fun surplusEventAfterTheHoldsDueTimeDoesNotDelayIt() = runTest {
+        assertThat(surplusTurnThenHold(holdFor = 2.0, activateDelay = 5.0))
+            .containsExactly("waitDone" to 1.0, "holdDone" to 3.0, "afterPassivate" to 6.0)
+    }
+
+    /** A surplus due exactly when the hold ends does not shorten it, so it is kept, not dropped. */
+    @Test
+    fun surplusEventAtTheHoldsDueTimeIsNotSpurious() = runTest {
+        assertThat(surplusTurnThenHold(holdFor = 2.0, activateDelay = 2.0))
+            .containsExactly("waitDone" to 1.0, "holdDone" to 3.0, "afterPassivate" to 3.0)
+    }
+
+    /**
+     * A hold cut short by [Process.reactivate] leaves no stale due time behind. Otherwise the
+     * scheduler would still see the process as mid-hold (due at t=10) and drop the t=3 turn that
+     * must reach the later `passivate()` as a surplus.
+     */
+    @Test
+    fun aHoldCutShortByReactivateLeavesNoStaleDueTime() = runTest {
+        val log = mutableListOf<Pair<String, Double>>()
+        var running = false
+        val holder = object : Process() {
+            override suspend fun actions() {
+                hold(10.0)
+                log.add("holdDone" to time())
+                running = true
+                waitUntil { !running }
+                log.add("waitDone" to time())
+                passivate()
+                log.add("afterPassivate" to time())
+            }
+        }
+        runSimulation(endTime = 60.0) {
+            Process.activate(holder)
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(2.0)
+                    Process.reactivate(holder)
+                    hold(1.0)
+                    Process.activate(holder)
+                    running = false
+                }
+            })
+        }
+        assertThat(log).containsExactly("holdDone" to 2.0, "waitDone" to 3.0, "afterPassivate" to 3.0)
     }
 
     /**
