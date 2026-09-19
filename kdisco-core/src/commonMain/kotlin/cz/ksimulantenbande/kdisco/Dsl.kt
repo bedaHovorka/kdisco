@@ -56,7 +56,7 @@ suspend fun resumeSimulation(
     clockTime: Double,
     randomState: RandomState,
     endTime: Double = Double.MAX_VALUE,
-    block: (Simulation.() -> Unit)? = null
+    block: (Simulation.() -> Unit)? = null,
 ) {
     Simulation.resume(events, clockTime, randomState, block).run(endTime)
 }
