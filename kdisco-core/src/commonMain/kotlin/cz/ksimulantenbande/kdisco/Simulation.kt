@@ -251,18 +251,6 @@ class Simulation internal constructor() {
         run(endTime) { controller.beforeEvent(this) }
 
     /**
-     * Runs the simulation under an external [SimulationController].
-     *
-     * @deprecated Parameter order is the reverse of [run]. Use `run(endTime, controller)` instead.
-     */
-    @Deprecated(
-        message = "Parameter order is reversed relative to run(endTime, controller). " +
-            "Use run(endTime, controller) instead.",
-        replaceWith = ReplaceWith("run(endTime, controller)"),
-    )
-    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
-
-    /**
      * How far continuous integration may run before the next discrete event: that event's time, or
      * [endTime] when the queue is empty and only continuous processes are still active.
      */
