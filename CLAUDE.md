@@ -156,19 +156,24 @@ Notes and constraints:
 
 #### One-time SonarCloud project setup
 
-CI needs a `SONAR_TOKEN` repository secret. The SonarCloud job runs on Java 17 (the
-scanner requires 17+) while the Kotlin `jvmTarget` stays at 11.
+CI needs a `SONAR_TOKEN` repository secret. The SonarCloud job runs on Java 17 while the
+Kotlin `jvmTarget` stays at 11. The host Java version is not the constraint it looks like:
+the Gradle scanner auto-provisions its own JRE (host Java 11+ is enough), and without
+auto-provisioning SonarCloud has required Java 21+ since 2026-07-20 — Java 17 support for
+the scanner runtime was removed then.
 
 kDisco uses the default **`previous_version`** new-code period. That window spans a whole
 release, which is acceptable for a project this size. A tighter window would require a
 New Code Definition set at project-creation time (`newCodeDefinitionType` parameter of
 `api/projects/create`) — every `api/new_code_periods/*` endpoint is 404 on SonarCloud,
 and the free-plan UI does not expose it. Do **not** set `sonar.leak.period` to
-`previous_analysis`; that value is valid on SonarQube Server only, and the scanner rejects
-it on the first *branch* analysis with:
+`previous_analysis`; SonarCloud does not accept that value (it is a legacy SonarQube
+leak-period option, absent even from current SonarQube Server docs), and the scanner
+rejects it on the first *branch* analysis with:
 
 ```
-Invalid new code period 'previous_analysis': version is none of the existing ones
+Invalid new code period 'previous_analysis': version is none of the existing ones:
+[0.6.2-SNAPSHOT]. Please contact a project administrator to correct this setting
 ```
 
 **Trap — `api/projects/create` ignores its `branch` parameter.** Creating the project with
@@ -192,7 +197,9 @@ the setting is accepted. Verify against an analysis result instead:
 
 - Check `api/qualitygates/project_status?projectKey=bedaHovorka_kdisco` — look at
   `ignoredConditions` (true means the gate was waived) and the individual condition
-  statuses.
+  statuses. A trunk snapshot with no new code answers `"status": "NONE"` with an empty
+  `conditions` array and no `ignoredConditions` field — that is healthy, not broken;
+  check a recent PR analysis instead.
 - Read `new_coverage` / `new_uncovered_conditions` from
   `api/measures/component?component=bedaHovorka_kdisco&metricKeys=new_coverage,new_uncovered_conditions`
   rather than trusting a green tick.
