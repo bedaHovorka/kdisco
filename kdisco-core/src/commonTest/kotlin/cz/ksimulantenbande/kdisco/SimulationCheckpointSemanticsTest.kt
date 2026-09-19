@@ -5,6 +5,7 @@ package cz.ksimulantenbande.kdisco
 
 import assertk.assertThat
 import assertk.assertions.isEqualTo
+import assertk.assertions.isSameInstanceAs
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
@@ -30,7 +31,7 @@ class SimulationCheckpointSemanticsTest {
     }
 
     private fun noop() = object : Process() {
-        override suspend fun actions() {}
+        override suspend fun actions() = Unit
     }
 
     // ---------------------------------------------------------------------------
@@ -38,9 +39,10 @@ class SimulationCheckpointSemanticsTest {
     // ---------------------------------------------------------------------------
 
     /**
-     * A bounded run stops *before* consuming the first event past `endTime`, leaving it in
-     * the queue. Without this, a checkpoint taken after a bounded run silently omits exactly
-     * one event — the next one due — and the resumed run diverges with no error.
+     * A bounded run stops *before* consuming the first event past `endTime`, leaving it queued so
+     * it is part of the end-of-run [Simulation.pendingEvents] view. Without this, a checkpoint
+     * taken after a bounded run silently omits exactly one event — the next one due — and the
+     * resumed run diverges with no error.
      */
     @Test
     fun boundedRunLeavesTheFirstEventPastEndTimeQueued() = runTest {
@@ -49,10 +51,35 @@ class SimulationCheckpointSemanticsTest {
         }
         sim.run(10.0)
 
-        assertThat(sim.scheduledEventCount()).isEqualTo(1)
+        // The live queue is emptied when the run ends; the checkpoint view keeps the event.
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
         val pending = sim.pendingEvents()
         assertThat(pending.size).isEqualTo(1)
         assertThat(pending[0].time).isEqualTo(15.0)
+    }
+
+    /**
+     * A process parked in `hold()` past `endTime` is cancelled when the run ends, and cancelling it
+     * removes its event from the queue. The checkpoint view must be captured before that, or every
+     * held process would vanish from it.
+     */
+    @Test
+    fun processHeldPastEndTimeStaysInPendingEvents() = runTest {
+        val held = object : Process() {
+            override suspend fun actions() {
+                hold(15.0)
+            }
+        }
+        val sim = Simulation.create {
+            Process.activate(held)
+        }
+        sim.run(10.0)
+
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+        val pending = sim.pendingEvents()
+        assertThat(pending.size).isEqualTo(1)
+        assertThat(pending[0].time).isEqualTo(15.0)
+        assertThat(pending[0].process).isSameInstanceAs(held)
     }
 
     /**

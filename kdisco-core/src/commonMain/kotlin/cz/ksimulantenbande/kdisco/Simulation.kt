@@ -20,6 +20,12 @@ class Simulation internal constructor() {
     internal val context = SimulationContext()
     private var _hasRun = false
 
+    /**
+     * The queue as it stood when [run] finished, taken before the end-of-run cleanup empties it.
+     * `null` until a run has finished. See [pendingEvents].
+     */
+    private var finalPendingEvents: List<PendingEvent>? = null
+
     // --- Continuous integration parameters ---
 
     /** Minimum integration step size. Must be > 0 and <= [dtMax]. */
@@ -59,7 +65,9 @@ class Simulation internal constructor() {
     /** The numerical integrator used for continuous variable integration. Defaults to [RKF45Integrator]. */
     internal var integrator: Integrator
         get() = context.monitor.integrator
-        set(value) { context.monitor.integrator = value }
+        set(value) {
+            context.monitor.integrator = value
+        }
 
     /** The random generator used by this simulation. Processes should use this for reproducible draws. */
     val random: Random get() = context.random
@@ -153,10 +161,9 @@ class Simulation internal constructor() {
                     break
                 }
 
-                // Stop before processing any event whose time exceeds endTime.
-                // Crucially, we do NOT remove the event from the queue here — leaving it
-                // in place means pendingEvents() correctly returns all future work after a
-                // partial run, enabling capture-and-resume checkpointing.
+                // Stop before processing any event whose time exceeds endTime. It stays queued, so
+                // the end-of-run snapshot behind pendingEvents() includes it — otherwise a
+                // checkpoint taken after a bounded run would silently omit the next event due.
                 if (next.time > endTime) break
 
                 // Pop and process the event.
@@ -217,6 +224,9 @@ class Simulation internal constructor() {
             context.isRunning = false
             context.currentProcess = null
             Process.activeContext = previousContext
+            // Capture the queue for pendingEvents() before anything below empties it: cancelling
+            // a parked hold() removes its event, and the cleanup after that clears the rest.
+            finalPendingEvents = context.eventQueue.snapshot()
             // Cancel any remaining suspended coroutines (passivated processes that
             // were never reactivated, or processes whose hold() time is past endTime).
             simScope.cancel()
@@ -296,9 +306,11 @@ class Simulation internal constructor() {
      * events in LIFO order ahead of normal events. The queue itself is not mutated.
      *
      * This method is safe to call at any point — before, during (e.g. from a [run]
-     * [beforeEvent] hook), or after [run] has completed.
+     * [beforeEvent] hook), or after [run] has completed. Once [run] has finished it returns the
+     * events that were still queued when the run ended — the future work a checkpoint needs —
+     * even though the queue itself is then emptied (see [scheduledEventCount]).
      */
-    fun pendingEvents(): List<PendingEvent> = context.eventQueue.snapshot()
+    fun pendingEvents(): List<PendingEvent> = finalPendingEvents ?: context.eventQueue.snapshot()
 
     /**
      * Number of outstanding wake-ups: pending activations, queued events, and registered wait
@@ -400,7 +412,7 @@ class Simulation internal constructor() {
             events: List<PendingEvent>,
             clockTime: Double,
             randomState: RandomState,
-            block: (Simulation.() -> Unit)? = null
+            block: (Simulation.() -> Unit)? = null,
         ): Simulation {
             require(clockTime >= 0.0) { "clockTime must be non-negative, got $clockTime" }
             val simulation = Simulation()
