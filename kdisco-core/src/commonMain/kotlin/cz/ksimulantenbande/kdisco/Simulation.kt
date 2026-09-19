@@ -255,7 +255,6 @@ class Simulation internal constructor() {
      *
      * @deprecated Parameter order is the reverse of [run]. Use `run(endTime, controller)` instead.
      */
-    @Suppress("kotlin:S1133") // intentional public-API deprecation, removal is tracked by the deprecation itself
     @Deprecated(
         message = "Parameter order is reversed relative to run(endTime, controller). " +
             "Use run(endTime, controller) instead.",
