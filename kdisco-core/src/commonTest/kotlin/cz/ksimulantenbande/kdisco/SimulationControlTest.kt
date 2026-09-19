@@ -138,4 +138,85 @@ class SimulationControlTest {
         // 3 events each holding ~1.0s sim time -> ~3s virtual time at factor 1.0
         assertThat(elapsed).isBetween(2500L, 4500L)
     }
+
+    @Test
+    fun runReturnsTrueWhenQueueDrainsNaturally() = runTest {
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                }
+            })
+        }
+        val result = sim.run(10.0)
+        assertThat(result).isTrue()
+    }
+
+    @Test
+    fun runReturnsFalseWhenStoppedViaStop() = runTest {
+        val sim = Simulation.create {
+            val simRef = this
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    simRef.stop()
+                    hold(1.0)
+                }
+            })
+        }
+        val result = sim.run(10.0)
+        assertThat(result).isFalse()
+    }
+
+    @Test
+    fun runReturnsFalseWhenEndTimeReachedWithEventsRemaining() = runTest {
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(5.0)
+                    hold(5.0)
+                }
+            })
+        }
+        // endTime=3.0 is before the first hold(5.0) completes
+        val result = sim.run(3.0)
+        assertThat(result).isFalse()
+    }
+
+    @Test
+    fun runControlledDelegatesToRunWithController() = runTest {
+        val controller = SimulationController()
+        val log = mutableListOf<Double>()
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    log.add(time())
+                }
+            })
+        }
+        val result = sim.runControlled(controller, 10.0)
+        assertThat(result).isTrue()
+        assertThat(log).isEqualTo(listOf(0.0))
+    }
+
+    @Test
+    fun scheduledEventCountReflectsQueuedEvents() = runTest {
+        lateinit var sim: Simulation
+        var countDuringRun = -1
+        sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    countDuringRun = sim.scheduledEventCount()
+                }
+            })
+        }
+        sim.run(10.0)
+        assertThat(countDuringRun).isEqualTo(1)
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+    }
 }
