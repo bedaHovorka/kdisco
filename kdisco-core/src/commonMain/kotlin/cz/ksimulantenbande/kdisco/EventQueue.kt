@@ -51,7 +51,7 @@ internal class EventQueue {
      */
     fun schedule(process: Process, time: Double, priority: Boolean = false, noticeRelease: Boolean = false) {
         val order = if (priority) priorityCounter-- else normalCounter++
-        val event = ScheduledEvent(process, time, order, noticeRelease)
+        val event = ScheduledEvent(process, time, order, noticeRelease, priority)
         val index = findInsertionPoint(time, order)
         events.add(index, event)
         process.queuedEvents++
@@ -105,6 +105,10 @@ internal class EventQueue {
 
     fun size(): Int = events.size
 
+    /** Returns an ordered snapshot of all pending events without mutating the queue. */
+    fun snapshot(): List<PendingEvent> =
+        events.map { PendingEvent(it.process, it.time, it.priority, it.insertionOrder) }
+
     private fun findInsertionPoint(time: Double, order: Long): Int {
         var low = 0
         var high = events.size
@@ -130,4 +134,5 @@ internal class ScheduledEvent(
     val insertionOrder: Long,
     /** True when this event is a notice's wake-up rather than a turn [process] owns. */
     val noticeRelease: Boolean = false,
+    val priority: Boolean = false,
 )
