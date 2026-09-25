@@ -455,7 +455,7 @@ abstract class Process : Link() {
      * Use [isWaiting] to tell a process parked on a condition or guard notice apart from one that
      * has an event in the queue.
      */
-    fun isActive(): Boolean = when (_state) {
+    open fun isActive(): Boolean = when (_state) {
         ProcessState.TERMINATED -> false
         ProcessState.RUNNING, ProcessState.SCHEDULED, ProcessState.WAITING -> true
         ProcessState.IDLE, ProcessState.PASSIVATED -> queuedEvents > 0
