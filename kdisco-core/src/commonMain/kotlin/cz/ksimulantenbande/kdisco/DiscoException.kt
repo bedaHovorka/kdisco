@@ -7,3 +7,10 @@ package cz.ksimulantenbande.kdisco
  * Exception thrown by the simulation engine when it detects an error.
  */
 class DiscoException(message: String) : RuntimeException(message)
+
+/**
+ * Thrown by [Simulation.run] when [Simulation.stopOnProcessFailure] is set and [process]'s
+ * actions threw [cause] at simulation time [time].
+ */
+class ProcessFailureException(val process: Process, val time: Double, cause: Throwable) :
+    RuntimeException("Process $process failed at t=$time: $cause", cause)

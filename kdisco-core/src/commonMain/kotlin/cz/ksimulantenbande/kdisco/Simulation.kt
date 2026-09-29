@@ -3,6 +3,7 @@
 // Author of jDisco: Keld Helsgaun, Roskilde University, Denmark. Email: keld@ruc.dk
 package cz.ksimulantenbande.kdisco
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -68,6 +69,11 @@ class Simulation internal constructor() {
     var deterministic: Boolean = false
         internal set
 
+    private val failureListeners = mutableListOf<(Process, Throwable) -> Unit>()
+
+    /** First failure recorded under [stopOnProcessFailure]; thrown by [run] once it has cleaned up. */
+    private var processFailure: ProcessFailureException? = null
+
     /**
      * Executes the simulation until [endTime] or [stop] is called.
      *
@@ -85,6 +91,10 @@ class Simulation internal constructor() {
      * whichever primitive they were parked on. That cancellation is not a simulation event: no
      * [SimulationEvent.ProcessTerminated] is emitted for it.
      *
+     * An exception escaping a process's [Process.actions] is reported through [onProcessFailure]
+     * and [SimulationEvent.ProcessFailed]; see [stopOnProcessFailure] to end the run on it.
+     *
+     * @throws ProcessFailureException if [stopOnProcessFailure] is set and a process failed.
      * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
@@ -184,26 +194,7 @@ class Simulation internal constructor() {
                     if (!process._terminated) {
                         process._state = ProcessState.RUNNING
                         context.emit { SimulationEvent.ProcessActivated(context.currentTime, process) }
-                        simScope.launch {
-                            try {
-                                process.actions()
-                            } catch (_: ProcessTerminatedException) {
-                                // Process called terminate() — expected, not an error
-                            } finally {
-                                if (!process._terminated) {
-                                    process._state = ProcessState.TERMINATED
-                                    // Same cleanup terminate() performs, for the process that
-                                    // simply ran off the end of actions(). A surplus turn can
-                                    // outlive it — a notice releases the process while a delayed
-                                    // activate's turn is still queued — and a turn left behind
-                                    // still gets popped: it advances the clock and fires the
-                                    // beforeEvent hook for a process the scheduler will then
-                                    // refuse to relaunch.
-                                    context.dropWakeUpsOf(process)
-                                    context.emit { SimulationEvent.ProcessTerminated(context.currentTime, process) }
-                                }
-                            }
-                        }
+                        simScope.launch { runProcess(process) }
                     }
                     // With Unconfined, the launched coroutine runs synchronously until
                     // the process calls hold()/passivate()/terminate(), then control
@@ -238,7 +229,54 @@ class Simulation internal constructor() {
             }
             context.eventQueue.clear()
         }
+        processFailure?.let { throw it }
         return true
+    }
+
+    /** Body of a process coroutine: runs [Process.actions] and handles how it ends. */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun runProcess(process: Process) {
+        try {
+            process.actions()
+        } catch (_: ProcessTerminatedException) {
+            // Process called terminate() — expected, not an error
+        } catch (cancellation: CancellationException) {
+            // The run is over and cancelled the process's coroutine — not a process failure
+            throw cancellation
+        } catch (failure: Throwable) {
+            onFailure(process, failure)
+        } finally {
+            if (!process._terminated) {
+                process._state = ProcessState.TERMINATED
+                // Same cleanup terminate() performs, for the process that
+                // simply ran off the end of actions(). A surplus turn can
+                // outlive it — a notice releases the process while a delayed
+                // activate's turn is still queued — and a turn left behind
+                // still gets popped: it advances the clock and fires the
+                // beforeEvent hook for a process the scheduler will then
+                // refuse to relaunch.
+                context.dropWakeUpsOf(process)
+                context.emit { SimulationEvent.ProcessTerminated(context.currentTime, process) }
+            }
+        }
+    }
+
+    /**
+     * Reports an exception that escaped [Process.actions]: emits [SimulationEvent.ProcessFailed],
+     * notifies the [onProcessFailure] listeners, and stops the run when [stopOnProcessFailure] is
+     * set. A failure nobody handles is rethrown to the coroutine's uncaught-exception handler.
+     */
+    private fun onFailure(process: Process, failure: Throwable) {
+        context.emit { SimulationEvent.ProcessFailed(context.currentTime, process, failure) }
+        failureListeners.forEach { it(process, failure) }
+        if (stopOnProcessFailure) {
+            if (processFailure == null) {
+                processFailure = ProcessFailureException(process, context.currentTime, failure)
+            }
+            context.stopRequested = true
+        } else if (failureListeners.isEmpty()) {
+            throw failure
+        }
     }
 
     /**
@@ -276,6 +314,32 @@ class Simulation internal constructor() {
     fun onEvent(listener: (SimulationEvent) -> Unit) {
         context.eventListeners += listener
     }
+
+    /**
+     * Register a listener that is called when a process's [Process.actions] throws an exception
+     * other than the engine's own termination signal (and other than coroutine cancellation).
+     *
+     * The listener receives the failed process and the throwable, exactly once per failure, from
+     * the failing process's coroutine at the failure's simulation time — before the process is
+     * marked terminated and before [SimulationEvent.ProcessTerminated] is emitted. A
+     * [SimulationEvent.ProcessFailed] is also delivered to [onEvent] listeners.
+     *
+     * By default a failed process does not affect the others and the run continues; set
+     * [stopOnProcessFailure] to end the run instead. Registering a listener (or setting
+     * [stopOnProcessFailure]) marks the failure as handled; otherwise it is rethrown to the
+     * coroutine's uncaught-exception handler as before. Listeners are additive.
+     */
+    fun onProcessFailure(listener: (process: Process, failure: Throwable) -> Unit) {
+        failureListeners += listener
+    }
+
+    /**
+     * When `true`, the first process failure (see [onProcessFailure]) stops the run: [run] ends
+     * at the failure time, after its usual cleanup, and throws a [ProcessFailureException]
+     * carrying the failed process, the time and the original throwable as its cause.
+     * Defaults to `false` — a failed process terminates alone and the run continues.
+     */
+    var stopOnProcessFailure: Boolean = false
 
     /**
      * Returns the scheduled time of the next pending event, or [Double.MAX_VALUE] if no
