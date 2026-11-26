@@ -524,9 +524,11 @@ abstract class Process : Link() {
     companion object {
         /**
          * The currently active simulation context. Set by [Simulation.run] for the
-         * duration of execution. Uses [SimulationContextHolder] for thread-safe
-         * access on JVM (ThreadLocal), allowing multiple simulations to run on
-         * separate threads simultaneously.
+         * duration of execution (and by [Simulation.create] during setup), and restored
+         * afterwards. Stored in [SimulationContextHolder], whose scope is per platform:
+         * on JVM a `ThreadLocal`, so simulations may run concurrently on separate threads,
+         * each on its own thread; on js and native a single global, so only one simulation
+         * may be running per process. See the "Threading" section of [Simulation].
          */
         @PublishedApi
         internal var activeContext: SimulationContext?
