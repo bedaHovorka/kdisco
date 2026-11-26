@@ -44,6 +44,15 @@ internal class EventQueue {
         private set
 
     /**
+     * The process whose turn was last queued or dropped by a [schedule] that is not a notice
+     * release, or by a [remove] — the changes only user code makes ([Process.activate],
+     * [Process.reactivate], [Process.terminate], cancellation). After [ContinuousMonitor] restarts
+     * a step, this is the mutating source [Simulation.run] names in its retry diagnostics.
+     */
+    var lastMutationSource: Process? = null
+        private set
+
+    /**
      * @param noticeRelease true when this event is a notice's wake-up ([Process.waitUntil],
      *   [Process.waitCrossing], [Process.waitUntilCrossing]) rather than a turn the process owns —
      *   a [Process.hold], [Process.activate] or [Process.reactivate]. The two are counted
@@ -55,7 +64,7 @@ internal class EventQueue {
         val index = findInsertionPoint(time, order)
         events.add(index, event)
         process.queuedEvents++
-        if (noticeRelease) process.noticeReleases++
+        if (noticeRelease) process.noticeReleases++ else lastMutationSource = process
         mutations++
     }
 
@@ -63,6 +72,7 @@ internal class EventQueue {
         events.removeAll { it.process === process }
         process.queuedEvents = 0
         process.noticeReleases = 0
+        lastMutationSource = process
         mutations++
     }
 

@@ -57,6 +57,28 @@ class Simulation internal constructor() {
             context.maxRelError = value
         }
 
+    /**
+     * How many times in a row continuous integration may restart for one event boundary before
+     * [run] fails with [IntegrationRetryLimitException]. Exactly this many retries are allowed; the
+     * next one throws. Must be > 0. Defaults to 10 000. See [run].
+     */
+    var integrationRetryLimit: Int = DEFAULT_INTEGRATION_RETRY_LIMIT
+        set(value) {
+            require(value > 0) { "integrationRetryLimit must be positive, got $value" }
+            field = value
+        }
+
+    /**
+     * Consecutive integration restarts for one event boundary at which [run] emits
+     * [SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed], once per boundary. Must be > 0.
+     * Defaults to 100. See [run].
+     */
+    var integrationRetryWarnThreshold: Int = DEFAULT_INTEGRATION_RETRY_WARN_THRESHOLD
+        set(value) {
+            require(value > 0) { "integrationRetryWarnThreshold must be positive, got $value" }
+            field = value
+        }
+
     /** The numerical integrator used for continuous variable integration. Defaults to [RKF45Integrator]. */
     internal var integrator: Integrator
         get() = context.monitor.integrator
@@ -109,7 +131,19 @@ class Simulation internal constructor() {
      * even when the cancellation comes from an [onProcessFailure] listener reacting to that very
      * failure: the caller's coroutine is checked after cleanup, before the failure is thrown.
      *
+     * Continuous integration towards one event boundary is retried whenever user code queues or
+     * drops a turn during a step (see [IntegrationRestartKind]). Those retries are bounded: when
+     * [integrationRetryWarnThreshold] consecutive retries (default 100) are reached for one
+     * boundary, a [SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed] naming the time,
+     * the retry count, the restart kind and the mutating source is emitted to [onEvent] listeners,
+     * once per boundary. [integrationRetryLimit] (default 10 000) retries are allowed; the next one
+     * ends the run with [IntegrationRetryLimitException], thrown after the usual teardown (process
+     * scope cancelled, event queue cleared). That is an engine failure, not a process failure: it
+     * does not go through [onProcessFailure]. The count restarts at zero for every boundary.
+     *
      * @throws ProcessFailureException if [stopOnProcessFailure] is set and a process failed.
+     * @throws IntegrationRetryLimitException if integration restarted more than
+     *   [integrationRetryLimit] times in a row for one event boundary.
      * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
@@ -162,8 +196,13 @@ class Simulation internal constructor() {
                     // Retried here rather than by restarting the outer loop, because no event has
                     // been processed: re-entering beforeEvent would spend a SimulationController's
                     // single-step authorization on a retry that advances the simulation by nothing.
+                    //
+                    // Bounded: user code that queues or drops a turn on every retry would otherwise
+                    // spin here at (nearly) constant simulated time. See countIntegrationRetry.
+                    var retries = 0
                     while (context.monitor.integrateUntil(integrationBoundary(next, endTime))) {
                         currentCoroutineContext().ensureActive()
+                        countIntegrationRetry(++retries)
                         next = context.eventQueue.peek()
                     }
                 }
@@ -338,6 +377,33 @@ class Simulation internal constructor() {
     }
 
     /**
+     * Accounts for the [retries]-th consecutive integration restart of one event boundary: emits
+     * [SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed] when it reaches
+     * [integrationRetryWarnThreshold], and throws [IntegrationRetryLimitException] when it exceeds
+     * [integrationRetryLimit].
+     */
+    private fun countIntegrationRetry(retries: Int) {
+        if (retries == integrationRetryWarnThreshold) {
+            context.emit {
+                SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed(
+                    context.currentTime,
+                    context.eventQueue.lastMutationSource,
+                    retries,
+                    context.monitor.lastRestartKind,
+                )
+            }
+        }
+        if (retries > integrationRetryLimit) {
+            throw IntegrationRetryLimitException(
+                context.currentTime,
+                retries,
+                context.monitor.lastRestartKind,
+                context.eventQueue.lastMutationSource,
+            )
+        }
+    }
+
+    /**
      * Runs the simulation under an external [SimulationController].
      *
      * The controller's [SimulationController.beforeEvent] hook is invoked once per
@@ -457,6 +523,9 @@ class Simulation internal constructor() {
     fun isStopRequested(): Boolean = context.stopRequested
 
     companion object {
+        private const val DEFAULT_INTEGRATION_RETRY_LIMIT = 10_000
+        private const val DEFAULT_INTEGRATION_RETRY_WARN_THRESHOLD = 100
+
         /**
          * Creates a new [Simulation] and runs [setup] with it as the receiver.
          * Processes activated during [setup] are queued for execution when [run] is called.

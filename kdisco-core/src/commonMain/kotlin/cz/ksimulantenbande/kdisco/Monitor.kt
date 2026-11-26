@@ -55,6 +55,13 @@ internal class ContinuousMonitor(
     internal var dtNext: Double = 0.0
 
     /**
+     * Kind of the most recent [StepOutcome.RESTART], i.e. why the last [integrateUntil] that
+     * returned true did so. Read by [Simulation.run] for its retry diagnostics.
+     */
+    internal var lastRestartKind: IntegrationRestartKind = IntegrationRestartKind.MUTATION
+        private set
+
+    /**
      * Integrates all active [Variable]s from [SimulationContext.currentTime] up to [targetTime].
      * Advances [SimulationContext.currentTime] to [targetTime] when complete.
      *
@@ -130,6 +137,7 @@ internal class ContinuousMonitor(
         if (located != StepOutcome.CONTINUE) return located
         if (context.eventQueue.mutations != queueMutationsBefore) {
             probeStateAt(stepStart, stepStart)
+            lastRestartKind = IntegrationRestartKind.MUTATION
             return StepOutcome.RESTART
         }
         // Re-test the wait and level-crossing registries at the accepted step end.
@@ -149,6 +157,7 @@ internal class ContinuousMonitor(
         val mutationsBeforeNotices = context.eventQueue.mutations
         val released = context.checkWaitNotices() + context.checkLevelCrossings()
         if (context.eventQueue.mutations - mutationsBeforeNotices != released.toLong()) {
+            lastRestartKind = IntegrationRestartKind.NOTICE_RELEASE
             return StepOutcome.RESTART
         }
         return if (released > 0) StepOutcome.STOP else StepOutcome.CONTINUE
@@ -248,6 +257,7 @@ internal class ContinuousMonitor(
             // integrate forward to whatever event it actually takes, so the clock and the state
             // agree there, and this crossing is simply located again on a later step.
             probeStateAt(stepStart, stepStart)
+            lastRestartKind = IntegrationRestartKind.MUTATION
             return StepOutcome.RESTART
         }
         // Scheduled unconditionally, for the same reason as checkWaitNotices (issue #73): a live
