@@ -34,7 +34,18 @@ sealed class SimulationEvent(
     /** [process]'s actions threw [failure]; emitted before the process is marked terminated. */
     class ProcessFailed(time: Double, process: Process, val failure: Throwable) : SimulationEvent(time, process)
 
-    /** Engine diagnostics: conditions an embedder should log (kDisco has no logger). */
+    /**
+     * Engine diagnostics: conditions an embedder should log (kDisco has no logger).
+     *
+     * A diagnostic may be delivered from inside the continuous integrator —
+     * [ProbeSubStepLimitReached] is emitted while the monitor phase is active. A listener should
+     * therefore only record or log it. Calling engine APIs from such a listener — starting or
+     * stopping a [Variable] or a [Continuous], [Resource.reserve] or [Resource.release],
+     * [Process.activate] — is illegal or invalidates the integration step.
+     *
+     * The [time] of a probe diagnostic is the probe clock, so it can be later than the time of
+     * events delivered after it.
+     */
     sealed class Diagnostic(time: Double, process: Process? = null) : SimulationEvent(time, process) {
         /** One-line English description suitable for a WARN log line. */
         abstract val message: String
