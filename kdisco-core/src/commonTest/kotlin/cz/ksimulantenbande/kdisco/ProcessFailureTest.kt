@@ -153,28 +153,51 @@ class ProcessFailureTest {
     }
 
     @Test
-    fun failureDuringEndOfRunCleanupKeepsTheFirstUnderStopOnProcessFailure() = runTest {
-        val first = Boom("first")
-        val second = Boom("second")
-        val seen = mutableListOf<Throwable>()
+    fun throwingFailureListenerDoesNotDisableStopOnProcessFailure() = runTest {
+        val boom = Boom("fatal")
+        val listenerBoom = Boom("listener broke")
+        val failing = Failing(3.0, boom)
+        var laterRan = false
         val sim = simulation {
             stopOnProcessFailure = true
-            onProcessFailure { _, failure -> seen += failure }
-            Process.activate(object : Process() {
-                override suspend fun actions() {
-                    try {
-                        passivate()
-                    } catch (_: kotlinx.coroutines.CancellationException) {
-                        // Cleanup of the cancelled run fails as well.
-                        throw second
+            onProcessFailure { _, _ -> throw listenerBoom }
+            Process.activate(failing)
+            Process.activate(
+                object : Process() {
+                    override suspend fun actions() {
+                        laterRan = true
                     }
-                }
-            })
-            Process.activate(Failing(1.0, first), delay = 1.0)
+                },
+                delay = 5.0,
+            )
         }
+
         val thrown = runCatching { sim.run(100.0) }.exceptionOrNull()
         assertThat(thrown).isNotNull().isInstanceOf(ProcessFailureException::class)
-        assertThat(thrown?.cause).isSameInstanceAs(first)
-        assertThat(seen).containsExactly(first, second)
+        val failure = thrown as ProcessFailureException
+        assertThat(failure.process).isSameInstanceAs(failing)
+        assertThat(failure.time).isEqualTo(3.0)
+        assertThat(failure.cause).isSameInstanceAs(boom)
+        assertThat(failure.suppressedExceptions).containsExactly(listenerBoom)
+        assertThat(sim.time()).isEqualTo(3.0)
+        assertThat(sim.isStopRequested()).isTrue()
+        assertThat(laterRan).isFalse()
+    }
+
+    @Test
+    fun throwingProcessFailedEventListenerDoesNotDisableStopOnProcessFailure() = runTest {
+        val boom = Boom("fatal")
+        val listenerBoom = Boom("event listener broke")
+        val sim = simulation {
+            stopOnProcessFailure = true
+            onEvent { if (it is SimulationEvent.ProcessFailed) throw listenerBoom }
+            Process.activate(Failing(2.0, boom))
+        }
+
+        val thrown = runCatching { sim.run(100.0) }.exceptionOrNull()
+        assertThat(thrown).isNotNull().isInstanceOf(ProcessFailureException::class)
+        assertThat(thrown?.cause).isSameInstanceAs(boom)
+        assertThat((thrown as ProcessFailureException).suppressedExceptions).containsExactly(listenerBoom)
+        assertThat(sim.time()).isEqualTo(2.0)
     }
 }

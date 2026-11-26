@@ -92,7 +92,20 @@ class Simulation internal constructor() {
      * [SimulationEvent.ProcessTerminated] is emitted for it.
      *
      * An exception escaping a process's [Process.actions] is reported through [onProcessFailure]
-     * and [SimulationEvent.ProcessFailed]; see [stopOnProcessFailure] to end the run on it.
+     * and [SimulationEvent.ProcessFailed]; see [stopOnProcessFailure] to end the run on it. A
+     * [CancellationException] thrown by user code is treated as cancellation, not reported as a
+     * failure. An [onEvent] listener that throws while a process body is executing becomes a
+     * failure of that process. A throwable raised by a process's cleanup while this function tears
+     * down (after the event loop has exited) is not a process failure; it goes to the
+     * uncaught-exception handler.
+     *
+     * Exceptions thrown by user code that runs on the engine coroutine outside a process body —
+     * [Continuous.derivatives], wait and crossing conditions and their guards, the [beforeEvent]
+     * hook, and [onEvent] listeners called from the event loop itself — propagate out of this
+     * function unchanged.
+     *
+     * Precedence: cancellation of the coroutine running this function wins over a pending process
+     * failure — the [CancellationException] is thrown, not the [ProcessFailureException].
      *
      * @throws ProcessFailureException if [stopOnProcessFailure] is set and a process failed.
      * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
@@ -262,21 +275,38 @@ class Simulation internal constructor() {
     }
 
     /**
-     * Reports an exception that escaped [Process.actions]: emits [SimulationEvent.ProcessFailed],
-     * notifies the [onProcessFailure] listeners, and stops the run when [stopOnProcessFailure] is
-     * set. A failure nobody handles is rethrown to the coroutine's uncaught-exception handler.
+     * Reports an exception that escaped [Process.actions]: records it and stops the run when
+     * [stopOnProcessFailure] is set, then emits [SimulationEvent.ProcessFailed] and notifies the
+     * [onProcessFailure] listeners. A failure nobody handles is rethrown to the coroutine's
+     * uncaught-exception handler.
+     *
+     * A throwable raised while [run] tears down — after its event loop has exited, when the
+     * remaining process coroutines are cancelled — is not a process failure: engine calls are not
+     * supported there, so a cleanup block making one would otherwise turn a run that ended normally
+     * into a failed one. It goes to the uncaught-exception handler unreported.
      */
+    @Suppress("TooGenericExceptionCaught")
     private fun onFailure(process: Process, failure: Throwable) {
+        if (!context.isRunning) throw failure
+        if (!stopOnProcessFailure) {
+            notifyFailure(process, failure)
+            if (failureListeners.isEmpty()) throw failure
+            return
+        }
+        // Record and stop first, so a listener that throws cannot cancel the stop.
+        val recorded = processFailure
+            ?: ProcessFailureException(process, context.currentTime, failure).also { processFailure = it }
+        context.stopRequested = true
+        try {
+            notifyFailure(process, failure)
+        } catch (listenerFailure: Throwable) {
+            recorded.addSuppressed(listenerFailure)
+        }
+    }
+
+    private fun notifyFailure(process: Process, failure: Throwable) {
         context.emit { SimulationEvent.ProcessFailed(context.currentTime, process, failure) }
         failureListeners.forEach { it(process, failure) }
-        if (stopOnProcessFailure) {
-            if (processFailure == null) {
-                processFailure = ProcessFailureException(process, context.currentTime, failure)
-            }
-            context.stopRequested = true
-        } else if (failureListeners.isEmpty()) {
-            throw failure
-        }
     }
 
     /**
@@ -330,6 +360,11 @@ class Simulation internal constructor() {
      * registered listener is no longer rethrown to the coroutine's uncaught-exception handler.
      * Only a failure that nobody handles (no listener and [stopOnProcessFailure] off) is
      * rethrown there, as before. Listeners are additive.
+     *
+     * An exception thrown by a listener is added as suppressed to the [ProcessFailureException]
+     * when [stopOnProcessFailure] is set; otherwise it ends the failing process's coroutine and
+     * reaches the uncaught-exception handler. A throwable raised while [run] tears down is not
+     * reported here (see [run]).
      */
     fun onProcessFailure(listener: (process: Process, failure: Throwable) -> Unit) {
         failureListeners += listener
@@ -340,6 +375,12 @@ class Simulation internal constructor() {
      * at the failure time, after its usual cleanup, and throws a [ProcessFailureException]
      * carrying the failed process, the time and the original throwable as its cause.
      * Defaults to `false` — a failed process terminates alone and the run continues.
+     *
+     * The failure is recorded and the stop requested before [SimulationEvent.ProcessFailed] is
+     * emitted and the [onProcessFailure] listeners are called; an exception thrown by one of those
+     * listeners does not cancel the stop but is added as suppressed to the thrown
+     * [ProcessFailureException]. The stop shares the flag [stop] sets, so [isStopRequested] is
+     * `true` after such a failure.
      */
     var stopOnProcessFailure: Boolean = false
 
@@ -374,7 +415,10 @@ class Simulation internal constructor() {
     /** `true` while the simulation is executing [run]. */
     val isRunning: Boolean get() = context.isRunning
 
-    /** `true` if the simulation has been requested to stop. */
+    /**
+     * `true` if the simulation has been requested to stop — by [stop], or by a process failure
+     * under [stopOnProcessFailure], which sets the same flag.
+     */
     fun isStopRequested(): Boolean = context.stopRequested
 
     companion object {
