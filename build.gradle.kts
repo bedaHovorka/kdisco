@@ -56,6 +56,13 @@ subprojects {
         }
     }
 
+    // Outer net (kdisco#86): a hung test must not burn the 20-minute CI job; 15 min leaves room for the
+    // slowest target. JVM tests also get a per-test JUnit timeout (junit-platform.properties) and
+    // timeout dumps; js and linuxX64 test tasks get only this Gradle timeout.
+    tasks.withType<org.gradle.api.tasks.testing.AbstractTestTask>().configureEach {
+        timeout.set(java.time.Duration.ofMinutes(15))
+    }
+
     configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
         version.set("1.5.0")
         filter {
