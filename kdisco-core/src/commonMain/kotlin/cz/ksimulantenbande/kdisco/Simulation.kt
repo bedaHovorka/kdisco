@@ -61,6 +61,11 @@ class Simulation internal constructor() {
      * How many times in a row continuous integration may restart for one event boundary before
      * [run] fails with [IntegrationRetryLimitException]. Exactly this many retries are allowed; the
      * next one throws. Must be > 0. Defaults to 10 000. See [run].
+     *
+     * Both kinds of [IntegrationRestartKind] count. An [IntegrationRestartKind.NOTICE_RELEASE] retry
+     * keeps the accepted step end, so the clock advances between such retries: a model whose wait
+     * condition queues or drops a turn on every step during a long continuous phase can reach the
+     * limit while still progressing. Raise this limit for such models.
      */
     var integrationRetryLimit: Int = DEFAULT_INTEGRATION_RETRY_LIMIT
         set(value) {
@@ -71,7 +76,8 @@ class Simulation internal constructor() {
     /**
      * Consecutive integration restarts for one event boundary at which [run] emits
      * [SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed], once per boundary. Must be > 0.
-     * Defaults to 100. See [run].
+     * Defaults to 100. See [run]. A threshold above [integrationRetryLimit] never fires: the run
+     * fails before the count reaches it.
      */
     var integrationRetryWarnThreshold: Int = DEFAULT_INTEGRATION_RETRY_WARN_THRESHOLD
         set(value) {
@@ -127,9 +133,10 @@ class Simulation internal constructor() {
      * function unchanged.
      *
      * Precedence: cancellation of the coroutine running this function wins over a pending process
-     * failure — the [CancellationException] is thrown, not the [ProcessFailureException]. This holds
-     * even when the cancellation comes from an [onProcessFailure] listener reacting to that very
-     * failure: the caller's coroutine is checked after cleanup, before the failure is thrown.
+     * failure — the [CancellationException] is thrown, not the [ProcessFailureException] — and so
+     * does an [IntegrationRetryLimitException]. Cancellation wins even when it comes from an
+     * [onProcessFailure] listener reacting to that very failure: the caller's coroutine is checked
+     * after cleanup, before the failure is thrown.
      *
      * Continuous integration towards one event boundary is retried whenever user code queues or
      * drops a turn during a step (see [IntegrationRestartKind]). Those retries are bounded: when

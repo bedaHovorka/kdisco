@@ -19,6 +19,11 @@ enum class IntegrationRestartKind {
     /**
      * User code queued or dropped a turn while the wait notices and level crossings were re-tested
      * at the accepted step end. The step-end state stands; only the boundary was stale.
+     *
+     * Such retries keep the accepted step end, so the clock advances between them, yet they still
+     * count towards [Simulation.integrationRetryLimit]: a model whose wait condition queues or drops
+     * a turn on every step during a long continuous phase can reach the limit while progressing.
+     * Raise [Simulation.integrationRetryLimit] for such models.
      */
     NOTICE_RELEASE,
 }

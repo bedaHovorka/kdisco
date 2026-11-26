@@ -30,10 +30,20 @@ class IntegrationRetryLimitException(
     val retries: Int,
     val kind: IntegrationRestartKind,
     val source: Process?,
-) : DiscoException(
-    "Continuous integration restarted $retries times in a row at t=$time " +
-        "(last restart: $kind, mutating source: ${source ?: "unknown"})",
-)
+) : DiscoException(integrationRetryMessage(time, retries, kind, source))
+
+/**
+ * The one-line description shared by [IntegrationRetryLimitException] and
+ * [SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed]; a `null` [source] is named
+ * "unknown".
+ */
+internal fun integrationRetryMessage(
+    time: Double,
+    retries: Int,
+    kind: IntegrationRestartKind,
+    source: Process?,
+): String = "Continuous integration restarted $retries times in a row at t=$time " +
+    "(last restart: $kind, mutating source: ${source ?: "unknown"})"
 
 /**
  * Thrown by [Simulation.run] when [Simulation.stopOnProcessFailure] is set and [process]'s

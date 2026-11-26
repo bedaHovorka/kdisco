@@ -278,6 +278,8 @@ class RestartRetryBoundTest {
         assertThat(diagnostic.message).contains("unknown")
         assertThat(diagnostic.message).contains("2.5")
         assertThat(diagnostic.message).contains("7")
+        val exception = IntegrationRetryLimitException(2.5, 7, IntegrationRestartKind.MUTATION, null)
+        assertThat(exception.message).isEqualTo(diagnostic.message)
     }
 
     private companion object {

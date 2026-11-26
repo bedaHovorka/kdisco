@@ -52,8 +52,7 @@ sealed class SimulationEvent(
             val kind: IntegrationRestartKind,
         ) : Diagnostic(time, process) {
             override val message: String
-                get() = "Continuous integration restarted $retries times in a row at t=$time " +
-                    "(last restart: $kind, mutating source: ${process ?: "unknown"})"
+                get() = integrationRetryMessage(time, retries, kind, process)
         }
     }
 }
