@@ -19,9 +19,10 @@ import kotlinx.coroutines.withContext
  *
  * ## Threading
  *
- * A simulation is thread-confined. The engine has no locks or atomics: it stays on one thread only
- * because the event loop in [run] issues every resumption of every process body (they are launched
- * on [Dispatchers.Unconfined]). The *engine thread* is the thread the coroutine that runs [run] is
+ * A simulation is thread-confined. `Simulation` and `SimulationContext` use no locks or atomics
+ * beyond the `@Volatile` stop flag: the engine stays on one thread only because the event loop in
+ * [run] issues every resumption of every process body (they are launched on
+ * [Dispatchers.Unconfined]). The *engine thread* is the thread the coroutine that runs [run] is
  * executing on.
  *
  * **Thread-confined — engine thread only.** Everything except the members listed under
@@ -43,15 +44,20 @@ import kotlinx.coroutines.withContext
  * channel. The off-thread reader reads only that value, never the live fields.
  *
  * **When [stop] takes effect.** The flag is read only at the top of each event-loop iteration,
- * before the `beforeEvent` hook; an iteration that has started processes its event. A run paused
- * in [SimulationController.beforeEvent] therefore does not end on [stop]: it ends only after the
- * controller is resumed ([SimulationController.resume] or [SimulationController.step]) and the
- * paused iteration has processed its one event, or when the coroutine that runs [run] is
+ * before the `beforeEvent` hook; an iteration that has started processes at most one event. A run
+ * paused in [SimulationController.beforeEvent] therefore does not end on [stop]: it ends only after
+ * the controller is resumed ([SimulationController.resume] or [SimulationController.step]) and the
+ * paused iteration has processed at most one event, or when the coroutine that runs [run] is
  * cancelled. [run] clears the flag when it starts, so a [stop] issued before [run] begins is lost.
  *
+ * **Stopping reliably from another thread.** To stop from another thread regardless of whether
+ * [run] has started, set your own `@Volatile` flag and call [stop] from the `beforeEvent` hook of
+ * [run] when it is set — the run then processes that iteration's event and ends — or cancel the
+ * coroutine that runs [run].
+ *
  * **What [stop] cannot interrupt.** [stop] from any thread does not interrupt the integration
- * retry loop (see [IntegrationRestartKind]); only cancellation of the coroutine that runs [run], or
- * [integrationRetryLimit], ends it. A process body that spins without suspending cannot be
+ * retry loop (see [IntegrationRestartKind]); only cancellation of the coroutine that runs [run] or
+ * [integrationRetryLimit] can cut it short. A process body that spins without suspending cannot be
  * interrupted at all, neither by [stop] nor by cancellation: the engine regains control only when
  * the body suspends.
  *
@@ -64,9 +70,11 @@ import kotlinx.coroutines.withContext
  *   (or [SimulationController.step]). There the JVM `ThreadLocal` that holds
  *   [Process.activeContext] is unset, so calls that look up the active simulation —
  *   [Process.activate], [Variable.start], [Continuous.start], [emitCustom] and the like — throw
- *   [DiscoException] or silently do nothing. Do not do that.
+ *   [DiscoException] or silently do nothing. Unsupported for controlled runs.
  * - On a pool dispatcher such as `Dispatchers.Default`, on a pool worker, possibly a different one
- *   after every pause, where the same `ThreadLocal` is unset.
+ *   after every pause, where the same `ThreadLocal` is unset. Unsupported for controlled runs, too:
+ *   in addition, the teardown of [run] restores the JVM `ThreadLocal` on whatever worker the run
+ *   ends on, leaving a stale context on the worker that started it.
  *
  * **One running simulation per process on js and native.** On JVM the active simulation is held
  * per thread, so simulations may run concurrently, each on its own thread. On js and native it is
@@ -581,6 +589,11 @@ class Simulation internal constructor() {
      * Requests the simulation to stop after the current event — or, called while continuous
      * integration is being retried (see [run]), after the current retry. Safe to call from any
      * thread; see the "Threading" section of [Simulation] for when the request takes effect.
+     *
+     * [run] clears the request when it starts. To stop reliably from another thread regardless of
+     * whether [run] has started, set your own `@Volatile` flag and call [stop] from the
+     * `beforeEvent` hook of [run] when it is set (the run then processes that iteration's event and
+     * ends), or cancel the coroutine that runs [run].
      */
     fun stop() {
         context.stopRequested = true
