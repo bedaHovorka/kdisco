@@ -54,5 +54,17 @@ sealed class SimulationEvent(
             override val message: String
                 get() = integrationRetryMessage(time, retries, kind, process)
         }
+
+        /**
+         * A state-event probe re-integrating [from]..[to] stopped at its sub-step limit (1000) still short
+         * of [to]: the clock was left at [time], so a crossing located from this probe is only a best
+         * effort. [variables] are the active variables that were being integrated.
+         */
+        class ProbeSubStepLimitReached(time: Double, val variables: List<Variable>, val from: Double, val to: Double) :
+            Diagnostic(time) {
+            override val message: String
+                get() = "Probe sub-step limit (${ContinuousMonitor.MAX_PROBE_SUB_STEPS}) reached " +
+                    "integrating $variables over [$from, $to]; clock left at t=$time"
+        }
     }
 }

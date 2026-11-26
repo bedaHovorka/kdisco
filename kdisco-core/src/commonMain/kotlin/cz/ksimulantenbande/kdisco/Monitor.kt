@@ -43,9 +43,9 @@ internal class ContinuousMonitor(
     private val context: SimulationContext,
     internal var integrator: Integrator = RKF45Integrator()
 ) {
-    private companion object {
+    internal companion object {
         /** Upper bound on bisection iterations when locating a zero-crossing. */
-        const val MAX_BISECTION_ITERATIONS = 100
+        private const val MAX_BISECTION_ITERATIONS = 100
 
         /** Upper bound on re-integration sub-steps when probing a specific target time. */
         const val MAX_PROBE_SUB_STEPS = 1_000
@@ -364,6 +364,26 @@ internal class ContinuousMonitor(
             iterations++
             if (context.currentTime < targetTime) computeDerivatives()
         }
+        if (iterations == MAX_PROBE_SUB_STEPS && context.currentTime < targetTime) {
+            context.emit {
+                SimulationEvent.Diagnostic.ProbeSubStepLimitReached(
+                    time = context.currentTime,
+                    variables = activeVariables(),
+                    from = stepStart,
+                    to = targetTime,
+                )
+            }
+        }
+    }
+
+    private fun activeVariables(): List<Variable> {
+        val result = mutableListOf<Variable>()
+        var v = context.firstVar
+        while (v != null) {
+            result += v
+            v = v._suc
+        }
+        return result
     }
 
     /**
