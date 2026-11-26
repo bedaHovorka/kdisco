@@ -326,8 +326,10 @@ class Simulation internal constructor() {
      *
      * By default a failed process does not affect the others and the run continues; set
      * [stopOnProcessFailure] to end the run instead. Registering a listener (or setting
-     * [stopOnProcessFailure]) marks the failure as handled; otherwise it is rethrown to the
-     * coroutine's uncaught-exception handler as before. Listeners are additive.
+     * [stopOnProcessFailure]) counts as handling the failure: a failure with at least one
+     * registered listener is no longer rethrown to the coroutine's uncaught-exception handler.
+     * Only a failure that nobody handles (no listener and [stopOnProcessFailure] off) is
+     * rethrown there, as before. Listeners are additive.
      */
     fun onProcessFailure(listener: (process: Process, failure: Throwable) -> Unit) {
         failureListeners += listener

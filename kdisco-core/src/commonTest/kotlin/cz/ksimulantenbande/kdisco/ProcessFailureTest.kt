@@ -151,4 +151,30 @@ class ProcessFailureTest {
         assertThat(sim.run(10.0)).isTrue()
         assertThat(failures).isEmpty()
     }
+
+    @Test
+    fun failureDuringEndOfRunCleanupKeepsTheFirstUnderStopOnProcessFailure() = runTest {
+        val first = Boom("first")
+        val second = Boom("second")
+        val seen = mutableListOf<Throwable>()
+        val sim = simulation {
+            stopOnProcessFailure = true
+            onProcessFailure { _, failure -> seen += failure }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    try {
+                        passivate()
+                    } catch (_: kotlinx.coroutines.CancellationException) {
+                        // Cleanup of the cancelled run fails as well.
+                        throw second
+                    }
+                }
+            })
+            Process.activate(Failing(1.0, first), delay = 1.0)
+        }
+        val thrown = runCatching { sim.run(100.0) }.exceptionOrNull()
+        assertThat(thrown).isNotNull().isInstanceOf(ProcessFailureException::class)
+        assertThat(thrown?.cause).isSameInstanceAs(first)
+        assertThat(seen).containsExactly(first, second)
+    }
 }
