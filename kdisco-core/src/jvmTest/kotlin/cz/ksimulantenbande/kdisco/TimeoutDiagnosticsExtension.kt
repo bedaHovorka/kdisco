@@ -3,6 +3,7 @@
 // Author of jDisco: Keld Helsgaun, Roskilde University, Denmark. Email: keld@ruc.dk
 package cz.ksimulantenbande.kdisco
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.debug.DebugProbes
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.api.extension.TestExecutionExceptionHandler
@@ -14,9 +15,15 @@ import java.util.concurrent.TimeoutException
  * Auto-registered JUnit extension (kdisco#86). Installs [DebugProbes] once per test JVM and, when a
  * test fails by timeout, prints a coroutine dump and a jstack-style dump of all threads to stderr
  * so the CI log shows where the test hung. The original failure is rethrown unchanged.
+ *
+ * Creation stack traces are disabled before installing: they would make every coroutine creation
+ * capture a stack trace — distorting the benchmarks — and bloat the dump with frames the hang
+ * diagnosis does not need.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class TimeoutDiagnosticsExtension : TestExecutionExceptionHandler {
     init {
+        DebugProbes.enableCreationStackTraces = false
         DebugProbes.install()
     }
 
@@ -42,6 +49,9 @@ class TimeoutDiagnosticsExtension : TestExecutionExceptionHandler {
         return out.toString(Charsets.UTF_8)
     }
 
+    // Thread.id is deprecated since Java 19 in favour of threadId(), which does not exist on the
+    // jvmTarget 11 this module compiles for.
+    @Suppress("DEPRECATION")
     private fun threadDump(): String = buildString {
         for ((thread, stack) in Thread.getAllStackTraces()) {
             val daemon = if (thread.isDaemon) "daemon " else ""
