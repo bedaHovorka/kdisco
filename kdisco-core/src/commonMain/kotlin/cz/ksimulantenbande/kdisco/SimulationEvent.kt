@@ -34,7 +34,18 @@ sealed class SimulationEvent(
     /** [process]'s actions threw [failure]; emitted before the process is marked terminated. */
     class ProcessFailed(time: Double, process: Process, val failure: Throwable) : SimulationEvent(time, process)
 
-    /** Engine diagnostics: conditions an embedder should log (kDisco has no logger). */
+    /**
+     * Engine diagnostics: conditions an embedder should log (kDisco has no logger).
+     *
+     * A diagnostic may be delivered from inside the continuous integrator —
+     * [ProbeSubStepLimitReached] is emitted while the monitor phase is active. A listener should
+     * therefore only record or log it. Calling engine APIs from such a listener — starting or
+     * stopping a [Variable] or a [Continuous], [Resource.reserve] or [Resource.release],
+     * [Process.activate] — is illegal or invalidates the integration step.
+     *
+     * Like every event, a diagnostic is delivered in simulation-time order: its [time] is a
+     * committed simulation time, never a speculative probe clock.
+     */
     sealed class Diagnostic(time: Double, process: Process? = null) : SimulationEvent(time, process) {
         /** One-line English description suitable for a WARN log line. */
         abstract val message: String
@@ -53,6 +64,25 @@ sealed class SimulationEvent(
         ) : Diagnostic(time, process) {
             override val message: String
                 get() = integrationRetryMessage(time, retries, kind, process)
+        }
+
+        /**
+         * A state-event probe re-integrating [from]..[to] stopped at its sub-step limit (1000) still short
+         * of [to], at the probe clock [reached], so a crossing located from this probe is only a best
+         * effort. [time] is the committed simulation time the probed step started from (equal to
+         * [from]), not the speculative probe clock. [variables] are the active variables that were
+         * being integrated.
+         */
+        class ProbeSubStepLimitReached(
+            time: Double,
+            val variables: List<Variable>,
+            val from: Double,
+            val to: Double,
+            val reached: Double,
+        ) : Diagnostic(time) {
+            override val message: String
+                get() = "Probe sub-step limit (${ContinuousMonitor.MAX_PROBE_SUB_STEPS}) reached " +
+                    "integrating $variables over [$from, $to]; probe stopped at t=$reached"
         }
     }
 }
