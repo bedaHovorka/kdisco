@@ -366,11 +366,14 @@ internal class ContinuousMonitor(
         }
         if (iterations == MAX_PROBE_SUB_STEPS && context.currentTime < targetTime) {
             context.emit {
+                // Timestamped with the committed step start, not the speculative probe clock, so
+                // the diagnostic keeps onEvent in simulation-time order.
                 SimulationEvent.Diagnostic.ProbeSubStepLimitReached(
-                    time = context.currentTime,
+                    time = stepStart,
                     variables = activeVariables(),
                     from = stepStart,
                     to = targetTime,
+                    reached = context.currentTime,
                 )
             }
         }

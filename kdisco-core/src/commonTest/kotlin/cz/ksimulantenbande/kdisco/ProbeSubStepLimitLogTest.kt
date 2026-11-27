@@ -5,10 +5,12 @@ package cz.ksimulantenbande.kdisco
 
 import assertk.assertThat
 import assertk.assertions.contains
+import assertk.assertions.containsExactly
 import assertk.assertions.hasSize
 import assertk.assertions.isCloseTo
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
+import assertk.assertions.isGreaterThan
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isSameInstanceAs
 import kotlinx.coroutines.test.runTest
@@ -75,10 +77,64 @@ class ProbeSubStepLimitLogTest {
         assertThat(d.from).isEqualTo(0.0)
         // The first probe is the bisection midpoint of the step [0, END_TIME].
         assertThat(d.to).isEqualTo(END_TIME / 2)
-        assertThat(d.time).isCloseTo(MAX_PROBE_SUB_STEPS * SLOW_ADVANCE, 1e-12)
+        // The event time is the committed step start, not the speculative probe clock ...
+        assertThat(d.time).isEqualTo(0.0)
+        // ... which is carried in reached.
+        assertThat(d.reached).isCloseTo(MAX_PROBE_SUB_STEPS * SLOW_ADVANCE, 1e-12)
         assertThat(d.message).contains("1000")
         assertThat(d.message).contains("0.0")
         assertThat(d.message).contains((END_TIME / 2).toString())
+        assertThat(d.message).contains(d.reached.toString())
+    }
+
+    /**
+     * Two crossings in one step, located in registration order: the later one (8.0) first — its
+     * first probe stalls at the sub-step limit with the probe clock near 0.001 — then the earlier
+     * one (0.0005), which resumes its waiter before that probe clock. The diagnostic must not carry
+     * the probe clock as its time, or it would precede an event at an earlier time.
+     */
+    @Test
+    fun diagnosticKeepsOnEventTimesNonDecreasingAcrossTwoCrossings() = runTest {
+        val x = Variable(0.0)
+        val motion = object : Continuous() {
+            override fun derivatives() {
+                x.rate = 1.0
+            }
+        }
+        val events = mutableListOf<SimulationEvent>()
+        val resumed = mutableListOf<Pair<String, Double>>()
+
+        fun waiter(name: String, level: Double) = object : Process() {
+            override suspend fun actions() {
+                waitCrossing { level - x.state }
+                resumed += name to time()
+                emitCustom(name)
+            }
+        }
+
+        val sim = simulation {
+            dtMax = END_TIME
+            integrator = SlowProbeIntegrator(MAX_PROBE_SUB_STEPS)
+            onEvent { events += it }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    x.start()
+                    motion.start()
+                }
+            })
+            Process.activate(waiter("late", LATE_CROSSING))
+            Process.activate(waiter("early", EARLY_CROSSING))
+        }
+        sim.run(END_TIME)
+
+        val diagnostics = events.filterIsInstance<SimulationEvent.Diagnostic.ProbeSubStepLimitReached>()
+        assertThat(diagnostics).hasSize(1)
+        assertThat(diagnostics.single().reached).isGreaterThan(EARLY_CROSSING)
+        assertThat(resumed.map { it.first }).containsExactly("early", "late")
+        assertThat(resumed[0].second).isCloseTo(EARLY_CROSSING, 1e-6)
+        assertThat(resumed[1].second).isCloseTo(LATE_CROSSING, 1e-6)
+        val times = events.map { it.time }
+        assertThat(times).isEqualTo(times.sorted())
     }
 
     @Test
@@ -120,6 +176,8 @@ class ProbeSubStepLimitLogTest {
         const val MAX_PROBE_SUB_STEPS = 1_000
         const val SLOW_ADVANCE = 1e-6
         const val THRESHOLD = 3.0
+        const val LATE_CROSSING = 8.0
+        const val EARLY_CROSSING = 0.0005
         const val END_TIME = 10.0
     }
 }

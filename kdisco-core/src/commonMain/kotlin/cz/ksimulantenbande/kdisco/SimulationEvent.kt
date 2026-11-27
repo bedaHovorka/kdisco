@@ -43,8 +43,8 @@ sealed class SimulationEvent(
      * stopping a [Variable] or a [Continuous], [Resource.reserve] or [Resource.release],
      * [Process.activate] — is illegal or invalidates the integration step.
      *
-     * The [time] of a probe diagnostic is the probe clock, so it can be later than the time of
-     * events delivered after it.
+     * Like every event, a diagnostic is delivered in simulation-time order: its [time] is a
+     * committed simulation time, never a speculative probe clock.
      */
     sealed class Diagnostic(time: Double, process: Process? = null) : SimulationEvent(time, process) {
         /** One-line English description suitable for a WARN log line. */
@@ -68,14 +68,21 @@ sealed class SimulationEvent(
 
         /**
          * A state-event probe re-integrating [from]..[to] stopped at its sub-step limit (1000) still short
-         * of [to]: the clock was left at [time], so a crossing located from this probe is only a best
-         * effort. [variables] are the active variables that were being integrated.
+         * of [to], at the probe clock [reached], so a crossing located from this probe is only a best
+         * effort. [time] is the committed simulation time the probed step started from (equal to
+         * [from]), not the speculative probe clock. [variables] are the active variables that were
+         * being integrated.
          */
-        class ProbeSubStepLimitReached(time: Double, val variables: List<Variable>, val from: Double, val to: Double) :
-            Diagnostic(time) {
+        class ProbeSubStepLimitReached(
+            time: Double,
+            val variables: List<Variable>,
+            val from: Double,
+            val to: Double,
+            val reached: Double,
+        ) : Diagnostic(time) {
             override val message: String
                 get() = "Probe sub-step limit (${ContinuousMonitor.MAX_PROBE_SUB_STEPS}) reached " +
-                    "integrating $variables over [$from, $to]; clock left at t=$time"
+                    "integrating $variables over [$from, $to]; probe stopped at t=$reached"
         }
     }
 }
