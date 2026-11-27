@@ -3,6 +3,8 @@
 // Author of jDisco: Keld Helsgaun, Roskilde University, Denmark. Email: keld@ruc.dk
 package cz.ksimulantenbande.kdisco
 
+import kotlin.concurrent.Volatile
+
 /**
  * Per-simulation-run state. Replaces jDisco's static globals.
  */
@@ -11,6 +13,12 @@ internal class SimulationContext {
     var currentTime: Double = 0.0
     var currentProcess: Process? = null
     var isRunning: Boolean = false
+
+    /**
+     * Set by [Simulation.stop], possibly from another thread; read by the event loop in
+     * [Simulation.run]. The only field of this class that is published across threads.
+     */
+    @Volatile
     var stopRequested: Boolean = false
 
     /** Seeded random number generator for this simulation run. */
