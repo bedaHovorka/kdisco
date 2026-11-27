@@ -74,8 +74,8 @@
     </file>
     <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/Simulation.kt">
         <error line="22" column="17" source="standard:backing-property-naming" />
-        <error line="63" column="22" source="standard:statement-wrapping" />
-        <error line="63" column="57" source="standard:statement-wrapping" />
+        <error line="94" column="22" source="standard:statement-wrapping" />
+        <error line="94" column="57" source="standard:statement-wrapping" />
         <error line="202" column="81" source="standard:function-expression-body" />
         <error line="211" column="91" source="standard:function-expression-body" />
         <error line="242" column="36" source="standard:function-expression-body" />

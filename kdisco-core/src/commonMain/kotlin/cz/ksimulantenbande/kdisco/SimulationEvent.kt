@@ -33,4 +33,26 @@ sealed class SimulationEvent(
 
     /** [process]'s actions threw [failure]; emitted before the process is marked terminated. */
     class ProcessFailed(time: Double, process: Process, val failure: Throwable) : SimulationEvent(time, process)
+
+    /** Engine diagnostics: conditions an embedder should log (kDisco has no logger). */
+    sealed class Diagnostic(time: Double, process: Process? = null) : SimulationEvent(time, process) {
+        /** One-line English description suitable for a WARN log line. */
+        abstract val message: String
+
+        /**
+         * Continuous integration restarted [retries] times in a row for one event boundary —
+         * [Simulation.integrationRetryWarnThreshold] was reached. Emitted at most once per boundary.
+         * [process] is the mutating source: the process whose turn was last queued or dropped by the
+         * aborted step, or `null` if it is not known. [kind] is the kind of the last restart.
+         */
+        class IntegrationRetryThresholdCrossed(
+            time: Double,
+            process: Process?,
+            val retries: Int,
+            val kind: IntegrationRestartKind,
+        ) : Diagnostic(time, process) {
+            override val message: String
+                get() = integrationRetryMessage(time, retries, kind, process)
+        }
+    }
 }
