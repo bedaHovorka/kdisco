@@ -70,6 +70,14 @@ class Resource(capacity: Int = 1) {
     /**
      * Atomically occupy [amount] units. If unavailable, the current process is
      * passivated and placed in the wait queue.
+     *
+     * **Do not [Process.reactivate] a process that is queued here.** Queued waiters are
+     * woken only by [release]. If another process reactivates a queued waiter, it resumes
+     * inside [reserve] without a grant, recurses into `reserve(amount)`, is unlinked and
+     * re-linked at the tail of the FIFO queue (it loses its place), and its continuation
+     * chain grows one frame deeper per such re-entry. Example: with waiters A, B, C queued
+     * and A reactivated externally, units are granted in the order B, C, A. Behaviour is
+     * pinned by `ResourceReserveReentryTest`; no defensive check is performed.
      */
     suspend fun reserve(amount: Int = 1) {
         require(amount > 0) { "Amount must be positive, got $amount" }
