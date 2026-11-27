@@ -30,4 +30,7 @@ sealed class SimulationEvent(
         : SimulationEvent(time)
 
     class Custom(time: Double, val payload: Any?) : SimulationEvent(time)
+
+    /** [process]'s actions threw [failure]; emitted before the process is marked terminated. */
+    class ProcessFailed(time: Double, process: Process, val failure: Throwable) : SimulationEvent(time, process)
 }
