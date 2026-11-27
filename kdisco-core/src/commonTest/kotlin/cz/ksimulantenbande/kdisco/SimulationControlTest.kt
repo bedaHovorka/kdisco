@@ -140,7 +140,7 @@ class SimulationControlTest {
     }
 
     @Test
-    fun runReturnsTrueWhenQueueDrainsNaturally() = runTest {
+    fun runReturnsQueueDrainedWhenNoEventIsLeftBeforeEndTime() = runTest {
         val sim = Simulation.create {
             Process.activate(object : Process() {
                 override suspend fun actions() {
@@ -148,12 +148,27 @@ class SimulationControlTest {
                 }
             })
         }
-        val result = sim.run(10.0)
-        assertThat(result).isTrue()
+        assertThat(sim.run(10.0)).isEqualTo(RunEnd.QUEUE_DRAINED)
+        assertThat(sim.time()).isEqualTo(1.0)
     }
 
     @Test
-    fun runReturnsFalseWhenStoppedViaStop() = runTest {
+    fun runReturnsQueueDrainedWhenEveryProcessIsPassivated() = runTest {
+        // A drained queue before the horizon is how a deadlock looks.
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(2.0)
+                    passivate()
+                }
+            })
+        }
+        assertThat(sim.run(100.0)).isEqualTo(RunEnd.QUEUE_DRAINED)
+        assertThat(sim.time()).isEqualTo(2.0)
+    }
+
+    @Test
+    fun runReturnsStoppedWhenAProcessCallsStop() = runTest {
         val sim = Simulation.create {
             val simRef = this
             Process.activate(object : Process() {
@@ -164,12 +179,30 @@ class SimulationControlTest {
                 }
             })
         }
-        val result = sim.run(10.0)
-        assertThat(result).isFalse()
+        assertThat(sim.run(10.0)).isEqualTo(RunEnd.STOPPED)
+        assertThat(sim.time()).isEqualTo(1.0)
     }
 
     @Test
-    fun runReturnsFalseWhenEndTimeReachedWithEventsRemaining() = runTest {
+    fun runReturnsStoppedWhenTheBeforeEventHookCallsStop() = runTest {
+        lateinit var sim: Simulation
+        sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    hold(1.0)
+                }
+            })
+        }
+        val result = sim.run(10.0) { if (sim.time() >= 1.0) sim.stop() }
+        assertThat(result).isEqualTo(RunEnd.STOPPED)
+        // The hook runs after the loop's stop check, so the event it was called before (t=2.0)
+        // is still processed; the loop ends at the next check.
+        assertThat(sim.time()).isEqualTo(2.0)
+    }
+
+    @Test
+    fun runReturnsEndTimeReachedWhenTheNextEventLiesBeyondEndTime() = runTest {
         val sim = Simulation.create {
             Process.activate(object : Process() {
                 override suspend fun actions() {
@@ -178,9 +211,55 @@ class SimulationControlTest {
                 }
             })
         }
-        // endTime=3.0 is before the first hold(5.0) completes
-        val result = sim.run(3.0)
-        assertThat(result).isFalse()
+        // endTime=3.0 is before the first hold(5.0) completes: the normal end of a run.
+        assertThat(sim.run(3.0)).isEqualTo(RunEnd.END_TIME_REACHED)
+    }
+
+    @Test
+    fun runReturnsEndTimeReachedWhenAContinuousProcessIsStillActiveAtEndTime() = runTest {
+        val c = object : Continuous() {
+            override fun derivatives() = Unit
+        }
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    c.start()
+                }
+            })
+        }
+        // No discrete event is ever queued after t=0, but integration runs all the way to endTime.
+        assertThat(sim.run(4.0)).isEqualTo(RunEnd.END_TIME_REACHED)
+        assertThat(sim.time()).isEqualTo(4.0)
+    }
+
+    @Test
+    fun runReturnsQueueDrainedWhenAContinuousProcessStopsBeforeEndTime() = runTest {
+        val c = object : Continuous() {
+            override fun derivatives() = Unit
+        }
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    c.start()
+                    hold(2.0)
+                    c.stop()
+                }
+            })
+        }
+        assertThat(sim.run(10.0)).isEqualTo(RunEnd.QUEUE_DRAINED)
+        assertThat(sim.time()).isEqualTo(2.0)
+    }
+
+    @Test
+    fun runWithControllerReturnsEndTimeReached() = runTest {
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(50.0)
+                }
+            })
+        }
+        assertThat(sim.run(10.0, SimulationController())).isEqualTo(RunEnd.END_TIME_REACHED)
     }
 
     @Test
@@ -195,7 +274,7 @@ class SimulationControlTest {
             })
         }
         val result = sim.runControlled(controller, 10.0)
-        assertThat(result).isTrue()
+        assertThat(result).isEqualTo(RunEnd.QUEUE_DRAINED)
         assertThat(log).isEqualTo(listOf(0.0))
     }
 

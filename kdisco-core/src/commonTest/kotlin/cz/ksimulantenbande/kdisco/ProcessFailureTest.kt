@@ -45,7 +45,7 @@ class ProcessFailureTest {
                 }
             })
         }
-        assertThat(sim.run(100.0)).isTrue()
+        assertThat(sim.run(100.0)).isEqualTo(RunEnd.QUEUE_DRAINED)
 
         assertThat(failures).hasSize(1)
         assertThat(failures[0].first).isSameInstanceAs(failing)
@@ -151,7 +151,7 @@ class ProcessFailureTest {
                 }
             })
         }
-        assertThat(sim.run(10.0)).isTrue()
+        assertThat(sim.run(10.0)).isEqualTo(RunEnd.END_TIME_REACHED)
         assertThat(failures).isEmpty()
     }
 
