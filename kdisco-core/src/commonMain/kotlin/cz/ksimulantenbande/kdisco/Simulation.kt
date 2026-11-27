@@ -36,15 +36,19 @@ import kotlinx.coroutines.withContext
  * **Publishable — any thread.** [stop] and [isStopRequested] (the flag is `@Volatile`), and
  * [SimulationController]'s [SimulationController.pause], [SimulationController.resume],
  * [SimulationController.step], [SimulationController.setThrottle] and
- * [SimulationController.isPaused].
+ * [SimulationController.isPaused]. Step requests are not counted atomically, though: issue the
+ * next [SimulationController.step] only after [SimulationController.isPaused] is `true` again (one
+ * outstanding step at a time). Concurrent or rapid-fire `step()` calls may coalesce into fewer
+ * steps.
  *
  * **Sampling state for another thread.** Sample on the engine thread — in a process body, an
  * [onEvent] listener or the `beforeEvent` hook of [run] — and publish one immutable value, for
  * example a data-class snapshot in a `@Volatile` field or an `AtomicReference`, or sent on a
  * channel. The off-thread reader reads only that value, never the live fields.
  *
- * **When [stop] takes effect.** The flag is read only at the top of each event-loop iteration,
- * before the `beforeEvent` hook; an iteration that has started processes at most one event. A run
+ * **When [stop] takes effect.** The flag is read at the top of each event-loop iteration, before
+ * the `beforeEvent` hook, and after each counted integration retry (see [run]); an iteration that
+ * has started processes at most one event. A run
  * paused in [SimulationController.beforeEvent] therefore does not end on [stop]: it ends only after
  * the controller is resumed ([SimulationController.resume] or [SimulationController.step]) and the
  * paused iteration has processed at most one event, or when the coroutine that runs [run] is
@@ -55,9 +59,9 @@ import kotlinx.coroutines.withContext
  * [run] when it is set — the run then processes that iteration's event and ends — or cancel the
  * coroutine that runs [run].
  *
- * **What [stop] cannot interrupt.** [stop] from any thread does not interrupt the integration
- * retry loop (see [IntegrationRestartKind]); only cancellation of the coroutine that runs [run] or
- * [integrationRetryLimit] can cut it short. A process body that spins without suspending cannot be
+ * **What [stop] cannot interrupt.** [stop] does not interrupt a single integration step in
+ * progress; inside the integration retry loop (see [IntegrationRestartKind]) it is honoured after
+ * the current retry is counted. A process body that spins without suspending cannot be
  * interrupted at all, neither by [stop] nor by cancellation: the engine regains control only when
  * the body suspends.
  *

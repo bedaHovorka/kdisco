@@ -62,6 +62,10 @@ class SimulationController {
     /**
      * Advance exactly one event and then pause again.
      * Call only while paused or from outside the simulation.
+     *
+     * Safe to call from another thread, but step requests are not counted atomically: issue the
+     * next `step()` only after [isPaused] is `true` again (one outstanding step at a time).
+     * Concurrent or rapid-fire `step()` calls may coalesce into fewer steps.
      */
     fun step() {
         paused = true

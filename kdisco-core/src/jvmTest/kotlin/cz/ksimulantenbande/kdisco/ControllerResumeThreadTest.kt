@@ -41,21 +41,23 @@ class ControllerResumeThreadTest {
             })
         }
         val runner = EngineThread { sim.run(10.0, controller) }
-        runner.start()
-        assertThat(paused.await(THREAD_TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)).isTrue()
-        runner.awaitParked()
+        try {
+            runner.start()
+            assertThat(paused.await(THREAD_TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)).isTrue()
+            runner.awaitParked()
 
-        val resumer = Thread { controller.resume() }
-        resumer.start()
-        resumer.join(THREAD_TEST_TIMEOUT_MS)
+            val resumer = Thread { controller.resume() }
+            resumer.start()
+            resumer.join(THREAD_TEST_TIMEOUT_MS)
 
-        val ended = runner.awaitDone()
-        if (!ended) runner.abort()
-        assertThat(ended).isTrue()
-        assertThat(runner.failure).isNull()
-        assertThat(resumer).isNotSameInstanceAs(runner.thread)
-        val runThread = runner.thread
-        assertThat(bodyThreads).containsExactly(runThread, runThread, runThread, runThread)
-        assertThat(sim.time()).isEqualTo(3.0)
+            assertThat(runner.awaitDone()).isTrue()
+            assertThat(runner.failure).isNull()
+            assertThat(resumer).isNotSameInstanceAs(runner.thread)
+            val runThread = runner.thread
+            assertThat(bodyThreads).containsExactly(runThread, runThread, runThread, runThread)
+            assertThat(sim.time()).isEqualTo(3.0)
+        } finally {
+            runner.abort()
+        }
     }
 }

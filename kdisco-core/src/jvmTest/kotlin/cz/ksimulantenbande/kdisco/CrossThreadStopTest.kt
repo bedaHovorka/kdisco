@@ -38,19 +38,21 @@ class CrossThreadStopTest {
         val ticker = Ticker(started)
         val sim = simulation { Process.activate(ticker) }
         val runner = EngineThread { sim.run(Double.MAX_VALUE) }
-        runner.start()
-        assertThat(started.await(THREAD_TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)).isTrue()
+        try {
+            runner.start()
+            assertThat(started.await(THREAD_TEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)).isTrue()
 
-        val stopper = Thread { sim.stop() }
-        stopper.start()
-        stopper.join(THREAD_TEST_TIMEOUT_MS)
+            val stopper = Thread { sim.stop() }
+            stopper.start()
+            stopper.join(THREAD_TEST_TIMEOUT_MS)
 
-        val ended = runner.awaitDone()
-        if (!ended) runner.abort()
-        assertThat(ended).isTrue()
-        assertThat(runner.failure).isNull()
-        assertThat(sim.isStopRequested()).isTrue()
-        assertThat(sim.isRunning).isFalse()
+            assertThat(runner.awaitDone()).isTrue()
+            assertThat(runner.failure).isNull()
+            assertThat(sim.isStopRequested()).isTrue()
+            assertThat(sim.isRunning).isFalse()
+        } finally {
+            runner.abort()
+        }
     }
 
     /**
@@ -67,20 +69,22 @@ class CrossThreadStopTest {
         controller.pause()
         val sim = simulation { Process.activate(ticker) }
         val runner = EngineThread { sim.run(Double.MAX_VALUE, controller) }
-        runner.start()
-        runner.awaitParked()
+        try {
+            runner.start()
+            runner.awaitParked()
 
-        sim.stop()
-        // Bounded negative check: the paused run must still be running after stop().
-        assertThat(runner.awaitDone(timeoutMs = 200)).isFalse()
-        assertThat(sim.isRunning).isTrue()
+            sim.stop()
+            // Bounded negative check: the paused run must still be running after stop().
+            assertThat(runner.awaitDone(timeoutMs = 200)).isFalse()
+            assertThat(sim.isRunning).isTrue()
 
-        controller.resume()
-        val ended = runner.awaitDone()
-        if (!ended) runner.abort()
-        assertThat(ended).isTrue()
-        assertThat(runner.failure).isNull()
-        // The iteration that was paused processes exactly its one event before the loop sees stop.
-        assertThat(ticker.ticks).isEqualTo(1)
+            controller.resume()
+            assertThat(runner.awaitDone()).isTrue()
+            assertThat(runner.failure).isNull()
+            // The iteration that was paused processes exactly its one event before the loop sees stop.
+            assertThat(ticker.ticks).isEqualTo(1)
+        } finally {
+            runner.abort()
+        }
     }
 }

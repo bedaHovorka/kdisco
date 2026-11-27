@@ -12,8 +12,9 @@ import java.util.concurrent.TimeUnit
 internal const val THREAD_TEST_TIMEOUT_MS = 10_000L
 
 /**
- * Runs [body] under `runBlocking` on a dedicated thread — the engine thread of the threading
- * tests. Every wait on it is bounded; [abort] cancels the run if it did not end in time.
+ * Runs [body] under `runBlocking` on a dedicated daemon thread — the engine thread of the threading
+ * tests. Every wait on it is bounded; [abort] cancels the run if it did not end in time. Tests call
+ * [abort] in a `finally`, and the thread is a daemon, so a failed test cannot keep the JVM alive.
  */
 internal class EngineThread(private val body: suspend () -> Unit) {
     private val job = Job()
@@ -34,14 +35,17 @@ internal class EngineThread(private val body: suspend () -> Unit) {
         } finally {
             done.countDown()
         }
-    }
+    }.apply { isDaemon = true }
 
     fun start() = thread.start()
 
     /** `true` if the run ended within [timeoutMs]. */
     fun awaitDone(timeoutMs: Long = THREAD_TEST_TIMEOUT_MS): Boolean = done.await(timeoutMs, TimeUnit.MILLISECONDS)
 
-    /** Cancels a run that did not end, so the test fails instead of leaking a spinning thread. */
+    /**
+     * Cancels a run that did not end and waits (bounded) for the thread, so a failing test does not
+     * leak a spinning thread. A no-op on a run that has already ended.
+     */
     fun abort() {
         job.cancel()
         thread.join(THREAD_TEST_TIMEOUT_MS)
