@@ -153,9 +153,10 @@ class Simulation internal constructor() {
      *
      * A stop requested while integration is being retried — by [stop] from an [onEvent] listener
      * reacting to the diagnostic, or by a process failure under [stopOnProcessFailure] released
-     * inside the step — is honoured after the retry is counted: the run ends normally there, with
-     * no further integration and no event processed. A stop requested during a step that is not
-     * retried takes effect, as always, at the top of the next event-loop iteration.
+     * inside the step — is honoured after the retry is counted: the run ends there (normally, or
+     * with the recorded [ProcessFailureException]), with no further integration and no event
+     * processed. A stop requested during a step that is not retried takes effect, as always, at the
+     * top of the next event-loop iteration.
      *
      * @throws ProcessFailureException if [stopOnProcessFailure] is set and a process failed.
      * @throws IntegrationRetryLimitException if integration restarted more than
