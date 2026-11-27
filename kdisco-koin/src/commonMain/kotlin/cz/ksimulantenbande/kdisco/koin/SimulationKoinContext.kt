@@ -4,6 +4,7 @@
 package cz.ksimulantenbande.kdisco.koin
 
 import cz.ksimulantenbande.kdisco.Simulation
+import cz.ksimulantenbande.kdisco.SimulationController
 import org.koin.core.Koin
 import org.koin.core.KoinApplication
 import org.koin.core.module.Module
@@ -27,10 +28,7 @@ import org.koin.dsl.koinApplication
  * }
  * ```
  */
-class SimulationKoinContext(
-    modules: List<Module>,
-    private val simulationSetup: SimulationKoinContext.() -> Unit
-) {
+class SimulationKoinContext(modules: List<Module>, private val simulationSetup: SimulationKoinContext.() -> Unit) {
     /** The Koin application for this simulation run. */
     val koinApp: KoinApplication = koinApplication {
         modules(modules)
@@ -48,7 +46,7 @@ class SimulationKoinContext(
      */
     inline fun <reified T : Any> get(
         qualifier: Qualifier? = null,
-        noinline parameters: ParametersDefinition? = null
+        noinline parameters: ParametersDefinition? = null,
     ): T = koin.get(qualifier, parameters)
 
     /**
@@ -56,7 +54,7 @@ class SimulationKoinContext(
      */
     inline fun <reified T : Any> inject(
         qualifier: Qualifier? = null,
-        noinline parameters: ParametersDefinition? = null
+        noinline parameters: ParametersDefinition? = null,
     ): Lazy<T> = lazy { koin.get(qualifier, parameters) }
 
     /**
@@ -66,14 +64,18 @@ class SimulationKoinContext(
      * the simulation context is active, so [Process.activate] calls go to the
      * pending-activations queue. Then [Simulation.run] is called as a suspend
      * function to execute the simulation to [endTime].
+     *
+     * @param controller optional [SimulationController] for pause/resume/step/throttle
+     *   control. When non-null, [Simulation.run] is invoked with the controller so its
+     *   [SimulationController.beforeEvent] hook is called before each event.
      */
-    suspend fun execute(endTime: Double): Simulation {
+    suspend fun execute(endTime: Double, controller: SimulationController? = null): Simulation {
         val newSim = Simulation.create {
             this@SimulationKoinContext.simulation = this
             currentKoinContext = this@SimulationKoinContext
             simulationSetup()
         }
-        newSim.run(endTime)
+        newSim.run(endTime, controller?.let { ctrl -> { ctrl.beforeEvent(newSim) } })
         return newSim
     }
 
@@ -101,13 +103,14 @@ internal expect var platformKoinContext: SimulationKoinContext?
 @PublishedApi
 internal var currentKoinContext: SimulationKoinContext?
     get() = platformKoinContext
-    set(value) { platformKoinContext = value }
+    set(value) {
+        platformKoinContext = value
+    }
 
 /**
  * Returns the [SimulationKoinContext] for the currently running simulation.
  *
  * @throws IllegalStateException if called outside a koinSimulation block.
  */
-fun activeSimulationKoin(): SimulationKoinContext =
-    currentKoinContext
-        ?: error("No active kDisco Koin context. Are you inside a koinSimulation {} block?")
+fun activeSimulationKoin(): SimulationKoinContext = currentKoinContext
+    ?: error("No active kDisco Koin context. Are you inside a koinSimulation {} block?")

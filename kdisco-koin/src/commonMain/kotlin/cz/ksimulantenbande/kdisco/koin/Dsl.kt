@@ -4,6 +4,7 @@
 package cz.ksimulantenbande.kdisco.koin
 
 import cz.ksimulantenbande.kdisco.Simulation
+import cz.ksimulantenbande.kdisco.SimulationController
 import org.koin.core.module.Module
 
 /**
@@ -37,17 +38,19 @@ import org.koin.core.module.Module
  *
  * @param modules one or more Koin [Module]s providing simulation dependencies
  * @param endTime simulation end time (default: [Double.MAX_VALUE])
+ * @param controller optional [SimulationController] for pause/resume/step/throttle control
  * @param setup   simulation configuration block (non-suspend — activations only)
  * @return the completed [Simulation]
  */
 suspend fun koinSimulation(
     vararg modules: Module,
     endTime: Double = Double.MAX_VALUE,
-    setup: SimulationKoinContext.() -> Unit
+    controller: SimulationController? = null,
+    setup: SimulationKoinContext.() -> Unit,
 ): Simulation {
     val ctx = SimulationKoinContext(modules.toList(), setup)
     return try {
-        ctx.execute(endTime)
+        ctx.execute(endTime, controller)
     } finally {
         ctx.close()
     }
@@ -62,11 +65,12 @@ suspend fun koinSimulation(
 suspend fun koinSimulation(
     modules: List<Module>,
     endTime: Double = Double.MAX_VALUE,
-    setup: SimulationKoinContext.() -> Unit
+    controller: SimulationController? = null,
+    setup: SimulationKoinContext.() -> Unit,
 ): Simulation {
     val ctx = SimulationKoinContext(modules, setup)
     return try {
-        ctx.execute(endTime)
+        ctx.execute(endTime, controller)
     } finally {
         ctx.close()
     }
@@ -90,7 +94,8 @@ suspend fun <P> koinSimulationSweep(
     vararg modules: Module,
     params: Iterable<P>,
     endTime: Double = Double.MAX_VALUE,
-    setup: SimulationKoinContext.(P) -> Unit
+    controller: SimulationController? = null,
+    setup: SimulationKoinContext.(P) -> Unit,
 ): List<Simulation> = params.map { param ->
-    koinSimulation(*modules, endTime = endTime) { setup(param) }
+    koinSimulation(*modules, endTime = endTime, controller = controller) { setup(param) }
 }
