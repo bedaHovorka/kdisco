@@ -163,4 +163,69 @@ class ProcessFailureUncaughtTest {
         assertThat(seen).isEmpty()
         assertThat(outcome.exceptionOrNull()).isSameInstanceAs(late)
     }
+
+    @Test
+    fun throwingFailureCallbackWithoutStopDoesNotSkipLaterCallbacks() {
+        val boom = IllegalStateException("fatal")
+        val firstBoom = IllegalStateException("first callback broke")
+        val secondBoom = IllegalStateException("second callback broke")
+        val calls = mutableListOf<String>()
+        var survivorFinishedAt = -1.0
+        var completed = false
+        val sim = simulation {
+            onProcessFailure { _, _ ->
+                calls += "first"
+                throw firstBoom
+            }
+            onProcessFailure { _, _ ->
+                calls += "second"
+                throw secondBoom
+            }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    throw boom
+                }
+            })
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(4.0)
+                    survivorFinishedAt = time()
+                }
+            })
+        }
+        // Every callback is attempted; the first exception thrown ends the failing process's
+        // coroutine with the later ones suppressed on it.
+        val outcome = runCatching { runTest { completed = sim.run(10.0) } }
+
+        assertThat(calls).containsExactly("first", "second")
+        assertThat(outcome.exceptionOrNull()).isSameInstanceAs(firstBoom)
+        assertThat(firstBoom.suppressedExceptions).containsExactly(secondBoom)
+        assertThat(completed).isTrue()
+        assertThat(survivorFinishedAt).isEqualTo(4.0)
+    }
+
+    @Test
+    fun throwingProcessFailedEventListenerWithoutStopStillLetsCallbacksRun() {
+        val boom = IllegalStateException("fatal")
+        val listenerBoom = IllegalStateException("event listener broke")
+        val seen = mutableListOf<Throwable>()
+        var completed = false
+        val sim = simulation {
+            onEvent { if (it is SimulationEvent.ProcessFailed) throw listenerBoom }
+            onProcessFailure { _, failure -> seen += failure }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    throw boom
+                }
+            })
+        }
+        val outcome = runCatching { runTest { completed = sim.run(10.0) } }
+
+        assertThat(seen).containsExactly(boom)
+        assertThat(outcome.exceptionOrNull()).isSameInstanceAs(listenerBoom)
+        assertThat(listenerBoom.suppressedExceptions).isEmpty()
+        assertThat(completed).isTrue()
+    }
 }

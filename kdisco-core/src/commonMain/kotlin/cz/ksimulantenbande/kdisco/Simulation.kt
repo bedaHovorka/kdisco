@@ -105,7 +105,9 @@ class Simulation internal constructor() {
      * function unchanged.
      *
      * Precedence: cancellation of the coroutine running this function wins over a pending process
-     * failure — the [CancellationException] is thrown, not the [ProcessFailureException].
+     * failure — the [CancellationException] is thrown, not the [ProcessFailureException]. This holds
+     * even when the cancellation comes from an [onProcessFailure] listener reacting to that very
+     * failure: the caller's coroutine is checked after cleanup, before the failure is thrown.
      *
      * @throws ProcessFailureException if [stopOnProcessFailure] is set and a process failed.
      * @param beforeEvent Optional suspend hook invoked once per event-loop iteration,
@@ -242,7 +244,12 @@ class Simulation internal constructor() {
             }
             context.eventQueue.clear()
         }
-        processFailure?.let { throw it }
+        processFailure?.let {
+            // A caller cancelled while the run was stopping — possibly by the failure listener
+            // itself — wins over the recorded failure.
+            currentCoroutineContext().ensureActive()
+            throw it
+        }
         return true
     }
 
@@ -285,11 +292,10 @@ class Simulation internal constructor() {
      * supported there, so a cleanup block making one would otherwise turn a run that ended normally
      * into a failed one. It goes to the uncaught-exception handler unreported.
      */
-    @Suppress("TooGenericExceptionCaught")
     private fun onFailure(process: Process, failure: Throwable) {
         if (!context.isRunning) throw failure
         if (!stopOnProcessFailure) {
-            notifyFailure(process, failure)
+            throwFirstOf(notifyFailure(process, failure))
             if (failureListeners.isEmpty()) throw failure
             return
         }
@@ -297,16 +303,38 @@ class Simulation internal constructor() {
         val recorded = processFailure
             ?: ProcessFailureException(process, context.currentTime, failure).also { processFailure = it }
         context.stopRequested = true
-        try {
-            notifyFailure(process, failure)
-        } catch (listenerFailure: Throwable) {
-            recorded.addSuppressed(listenerFailure)
-        }
+        notifyFailure(process, failure).forEach(recorded::addSuppressed)
     }
 
-    private fun notifyFailure(process: Process, failure: Throwable) {
-        context.emit { SimulationEvent.ProcessFailed(context.currentTime, process, failure) }
-        failureListeners.forEach { it(process, failure) }
+    /** Throws the first of [thrown] with the later ones suppressed on it; returns if it is empty. */
+    private fun throwFirstOf(thrown: List<Throwable>) {
+        if (thrown.isEmpty()) return
+        val first = thrown.first()
+        for (i in 1 until thrown.size) first.addSuppressed(thrown[i])
+        throw first
+    }
+
+    /**
+     * Emits [SimulationEvent.ProcessFailed] and calls every [onProcessFailure] listener, each in
+     * isolation: a hook that throws does not keep the later ones from running. Returns what the
+     * hooks threw, in the order they threw it (empty when none did).
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun notifyFailure(process: Process, failure: Throwable): List<Throwable> {
+        val thrown = mutableListOf<Throwable>()
+        try {
+            context.emit { SimulationEvent.ProcessFailed(context.currentTime, process, failure) }
+        } catch (listenerFailure: Throwable) {
+            thrown += listenerFailure
+        }
+        for (listener in failureListeners) {
+            try {
+                listener(process, failure)
+            } catch (listenerFailure: Throwable) {
+                thrown += listenerFailure
+            }
+        }
+        return thrown
     }
 
     /**
@@ -361,10 +389,14 @@ class Simulation internal constructor() {
      * Only a failure that nobody handles (no listener and [stopOnProcessFailure] off) is
      * rethrown there, as before. Listeners are additive.
      *
-     * An exception thrown by a listener is added as suppressed to the [ProcessFailureException]
-     * when [stopOnProcessFailure] is set; otherwise it ends the failing process's coroutine and
-     * reaches the uncaught-exception handler. A throwable raised while [run] tears down is not
-     * reported here (see [run]).
+     * Every failure hook is attempted: the [SimulationEvent.ProcessFailed] emission and each
+     * listener run in isolation, so one that throws does not keep the later ones from running.
+     * Exceptions they throw are collected in order. When [stopOnProcessFailure] is set each is
+     * added as suppressed to the [ProcessFailureException]; otherwise the first one ends the
+     * failing process's coroutine, with the later ones suppressed on it, and reaches the
+     * uncaught-exception handler. A listener that cancels the coroutine running [run] makes [run]
+     * throw the [CancellationException] rather than the [ProcessFailureException]. A throwable
+     * raised while [run] tears down is not reported here (see [run]).
      */
     fun onProcessFailure(listener: (process: Process, failure: Throwable) -> Unit) {
         failureListeners += listener
@@ -381,6 +413,9 @@ class Simulation internal constructor() {
      * listeners does not cancel the stop but is added as suppressed to the thrown
      * [ProcessFailureException]. The stop shares the flag [stop] sets, so [isStopRequested] is
      * `true` after such a failure.
+     *
+     * With this option on and no [onProcessFailure] listener registered, kDisco logs nothing: the
+     * embedder must log the [ProcessFailureException] it catches from [run].
      */
     var stopOnProcessFailure: Boolean = false
 

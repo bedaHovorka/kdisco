@@ -5,6 +5,9 @@ package cz.ksimulantenbande.kdisco
 
 import assertk.assertThat
 import assertk.assertions.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
@@ -199,5 +202,72 @@ class ProcessFailureTest {
         assertThat(thrown?.cause).isSameInstanceAs(boom)
         assertThat((thrown as ProcessFailureException).suppressedExceptions).containsExactly(listenerBoom)
         assertThat(sim.time()).isEqualTo(2.0)
+    }
+
+    @Test
+    fun callerCancellationFromFailureListenerWinsOverRecordedFailure() = runTest {
+        val boom = Boom("fatal")
+        lateinit var runner: Job
+        var listenerCalls = 0
+        val sim = simulation {
+            stopOnProcessFailure = true
+            onProcessFailure { _, _ ->
+                listenerCalls++
+                runner.cancel()
+            }
+            Process.activate(Failing(2.0, boom))
+        }
+        var thrown: Throwable? = null
+        runner = launch { thrown = runCatching { sim.run(100.0) }.exceptionOrNull() }
+        runner.join()
+
+        assertThat(listenerCalls).isEqualTo(1)
+        assertThat(thrown).isNotNull().isInstanceOf(CancellationException::class)
+        assertThat(sim.isRunning).isFalse()
+        assertThat(sim.time()).isEqualTo(2.0)
+    }
+
+    @Test
+    fun throwingProcessFailedEventListenerStillLetsFailureCallbacksRun() = runTest {
+        val boom = Boom("fatal")
+        val listenerBoom = Boom("event listener broke")
+        val seen = mutableListOf<Throwable>()
+        val sim = simulation {
+            stopOnProcessFailure = true
+            onEvent { if (it is SimulationEvent.ProcessFailed) throw listenerBoom }
+            onProcessFailure { _, failure -> seen += failure }
+            Process.activate(Failing(2.0, boom))
+        }
+
+        val thrown = runCatching { sim.run(100.0) }.exceptionOrNull()
+        assertThat(seen).containsExactly(boom)
+        assertThat(thrown).isNotNull().isInstanceOf(ProcessFailureException::class)
+        assertThat((thrown as ProcessFailureException).suppressedExceptions).containsExactly(listenerBoom)
+    }
+
+    @Test
+    fun throwingFailureCallbackDoesNotSkipLaterCallbacksUnderStop() = runTest {
+        val boom = Boom("fatal")
+        val firstBoom = Boom("first callback broke")
+        val secondBoom = Boom("second callback broke")
+        val calls = mutableListOf<String>()
+        val sim = simulation {
+            stopOnProcessFailure = true
+            onProcessFailure { _, _ ->
+                calls += "first"
+                throw firstBoom
+            }
+            onProcessFailure { _, _ ->
+                calls += "second"
+                throw secondBoom
+            }
+            Process.activate(Failing(2.0, boom))
+        }
+
+        val thrown = runCatching { sim.run(100.0) }.exceptionOrNull()
+        assertThat(calls).containsExactly("first", "second")
+        assertThat(thrown).isNotNull().isInstanceOf(ProcessFailureException::class)
+        assertThat(thrown?.cause).isSameInstanceAs(boom)
+        assertThat((thrown as ProcessFailureException).suppressedExceptions).containsExactly(firstBoom, secondBoom)
     }
 }
