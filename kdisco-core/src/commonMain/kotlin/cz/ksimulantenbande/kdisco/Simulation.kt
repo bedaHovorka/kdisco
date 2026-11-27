@@ -114,10 +114,12 @@ class Simulation internal constructor() {
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
      *   *previously* processed event (i.e. before the clock advances to the next event).
-     * @return how the run ended — see [RunEnd]: [RunEnd.QUEUE_DRAINED] when no event was left to
-     *   process before [endTime], [RunEnd.END_TIME_REACHED] when the next event lies beyond
-     *   [endTime] (the normal end of a run), [RunEnd.STOPPED] when [stop] was called. The failures
-     *   are not return values; they throw (see above).
+     * @return how the run ended — see [RunEnd]: [RunEnd.STOPPED] when [stop] was called (from any
+     *   source, even if the queue drained or [endTime] was reached on the same pass);
+     *   [RunEnd.END_TIME_REACHED] when the clock reached [endTime], whether the next event lies
+     *   beyond it or integration ran up to it (the normal end of a run); [RunEnd.QUEUE_DRAINED]
+     *   when nothing was left to process and the clock is short of [endTime]. The failures are not
+     *   return values; they throw (see above).
      */
     suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null): RunEnd {
         check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
@@ -149,11 +151,7 @@ class Simulation internal constructor() {
             // Dispatchers.Unconfined guarantees: launch{} and resumeWith() both run the
             // process synchronously on this thread until the process suspends
             // (hold/passivate) or terminates, then control returns here for the next event.
-            while (true) {
-                if (context.stopRequested) {
-                    runEnd = RunEnd.STOPPED
-                    break
-                }
+            while (!context.stopRequested) {
                 currentCoroutineContext().ensureActive()
                 beforeEvent?.invoke()
 
@@ -184,9 +182,10 @@ class Simulation internal constructor() {
                 // loop back to process them; otherwise we are truly done.
                 if (next == null) {
                     if (!context.eventQueue.isEmpty()) continue
-                    // A continuous process still active here has just been integrated all the way
-                    // to endTime: the run reached its horizon, it did not run out of work.
-                    runEnd = if (context.firstCont != null) RunEnd.END_TIME_REACHED else RunEnd.QUEUE_DRAINED
+                    // Judged by the clock: only a queue that drains short of endTime ran out of
+                    // work. Reaching endTime — by a last event exactly there, or by integrating a
+                    // continuous process up to it — is the normal end of a run.
+                    runEnd = if (context.currentTime >= endTime) RunEnd.END_TIME_REACHED else RunEnd.QUEUE_DRAINED
                     break
                 }
 
@@ -233,6 +232,10 @@ class Simulation internal constructor() {
                 context.checkWaitNotices()
                 context.checkLevelCrossings()
             }
+            // A stop request wins over whichever exit the loop took: stop() counts the same from a
+            // process, a listener, the beforeEvent hook or code run during integration, even when
+            // the queue drained or the horizon was reached on that same pass.
+            if (context.stopRequested) runEnd = RunEnd.STOPPED
         } finally {
             context.isRunning = false
             context.currentProcess = null

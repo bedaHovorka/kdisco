@@ -251,6 +251,73 @@ class SimulationControlTest {
     }
 
     @Test
+    fun runReturnsStoppedWhenTheHookStopsOnThePassWhereTheQueueDrains() = runTest {
+        lateinit var sim: Simulation
+        sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                }
+            })
+        }
+        // The hook stops on the pass that then finds the queue empty: stop counts, wherever it
+        // comes from, and the loop still exits at that same drain exit.
+        val result = sim.run(10.0) { if (sim.time() >= 1.0) sim.stop() }
+        assertThat(result).isEqualTo(RunEnd.STOPPED)
+        assertThat(sim.time()).isEqualTo(1.0)
+    }
+
+    @Test
+    fun runReturnsStoppedWhenTheHookStopsOnThePassWhoseNextEventLiesBeyondEndTime() = runTest {
+        lateinit var sim: Simulation
+        sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(1.0)
+                    hold(50.0)
+                }
+            })
+        }
+        val result = sim.run(10.0) { if (sim.time() >= 1.0) sim.stop() }
+        assertThat(result).isEqualTo(RunEnd.STOPPED)
+        assertThat(sim.time()).isEqualTo(1.0)
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+    }
+
+    @Test
+    fun runReturnsStoppedWhenDerivativesCallStopWhileIntegratingToEndTime() = runTest {
+        lateinit var sim: Simulation
+        sim = Simulation.create {
+            val c = object : Continuous() {
+                override fun derivatives() {
+                    if (sim.time() >= 2.0) sim.stop()
+                }
+            }
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    c.start()
+                }
+            })
+        }
+        // stop() only sets the request; integration still runs to endTime before the loop exits.
+        assertThat(sim.run(4.0)).isEqualTo(RunEnd.STOPPED)
+        assertThat(sim.time()).isEqualTo(4.0)
+    }
+
+    @Test
+    fun runReturnsEndTimeReachedWhenTheLastDiscreteEventFallsExactlyAtEndTime() = runTest {
+        val sim = Simulation.create {
+            Process.activate(object : Process() {
+                override suspend fun actions() {
+                    hold(10.0)
+                }
+            })
+        }
+        assertThat(sim.run(10.0)).isEqualTo(RunEnd.END_TIME_REACHED)
+        assertThat(sim.time()).isEqualTo(10.0)
+    }
+
+    @Test
     fun runWithControllerReturnsEndTimeReached() = runTest {
         val sim = Simulation.create {
             Process.activate(object : Process() {

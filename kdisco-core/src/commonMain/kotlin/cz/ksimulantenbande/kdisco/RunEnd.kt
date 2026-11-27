@@ -13,20 +13,23 @@ package cz.ksimulantenbande.kdisco
  */
 enum class RunEnd {
     /**
-     * No event was left to process before `endTime`: no discrete event queued and no continuous
-     * process active. In a model that should run to the horizon this is how a deadlock looks.
+     * Nothing was left to process and the clock is short of `endTime`: no discrete event queued
+     * and no continuous process active. In a model that should run to the horizon this is how a
+     * deadlock looks.
      */
     QUEUE_DRAINED,
 
     /**
-     * The next event lies beyond `endTime`: the normal end of a run. Processes still holding or
-     * queued are the state at the cut-off, not a failure.
+     * The clock reached `endTime`, whether the next event lies beyond it or integration of a
+     * continuous process ran up to it: the normal end of a run. Processes still holding or queued
+     * are the state at the cut-off, not a failure.
      */
     END_TIME_REACHED,
 
     /**
      * [Simulation.stop] was called — from any source: a process, an [Simulation.onEvent]
-     * listener, or the `beforeEvent` hook.
+     * listener, the `beforeEvent` hook, or code run during integration — even when the queue
+     * drained or `endTime` was reached on that same pass.
      */
     STOPPED,
 }
