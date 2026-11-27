@@ -13,6 +13,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isFalse
 import assertk.assertions.isGreaterThan
 import assertk.assertions.isInstanceOf
+import assertk.assertions.isLessThan
 import assertk.assertions.isNotNull
 import assertk.assertions.isSameInstanceAs
 import assertk.assertions.isTrue
@@ -101,6 +102,70 @@ class RestartRetryBoundTest {
         assertFailure { sim.integrationRetryLimit = -1 }.isInstanceOf<IllegalArgumentException>()
         sim.integrationRetryLimit = 1
         assertThat(sim.integrationRetryLimit).isEqualTo(1)
+    }
+
+    @Test
+    fun retryLimitMustLeaveRoomForTheFailingRetry() {
+        val sim = simulation {}
+        assertFailure { sim.integrationRetryLimit = Int.MAX_VALUE }.isInstanceOf<IllegalArgumentException>()
+        sim.integrationRetryLimit = Int.MAX_VALUE - 1
+        assertThat(sim.integrationRetryLimit).isEqualTo(Int.MAX_VALUE - 1)
+    }
+
+    @Test
+    fun stopRequestedOnTheThresholdDiagnosticEndsTheRunNormally() = runTest {
+        val x = Variable(0.0)
+        // Enough budget to run past the limit if the stop were not honoured.
+        val waiter = MutatingWaiter(budget = LIMIT + 5)
+        val events = mutableListOf<SimulationEvent>()
+
+        val sim = simulation {
+            integrationRetryLimit = LIMIT
+            integrationRetryWarnThreshold = THRESHOLD
+            onEvent { event ->
+                events += event
+                if (event is SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed) stop()
+            }
+            Process.activate(Starter(x, PlainMotion(x)))
+            Process.activate(waiter)
+        }
+
+        assertThat(sim.run(END_TIME)).isTrue()
+        // Exactly THRESHOLD retries ran: the stop is honoured right after the diagnostic.
+        assertThat(waiter.pingers).hasSize(THRESHOLD)
+        // Nothing was processed after the diagnostic.
+        assertThat(events.last()).isInstanceOf<SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed>()
+        assertThat(sim.time()).isLessThan(END_TIME)
+        assertThat(sim.isRunning).isFalse()
+        assertThat(sim.scheduledEventCount()).isEqualTo(0)
+    }
+
+    @Test
+    fun limitExceptionNamesTheSourceCapturedBeforeTheDiagnostic() = runTest {
+        val x = Variable(0.0)
+        val motion = MutatingMotion(x)
+        val intruder = Pinger()
+        var sourceAtDiagnostic: Process? = null
+
+        val sim = simulation {
+            integrationRetryLimit = LIMIT
+            // Diagnostic and failure fall on the same retry.
+            integrationRetryWarnThreshold = LIMIT + 1
+            onEvent { event ->
+                if (event is SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed) {
+                    sourceAtDiagnostic = event.process
+                    // Queues a turn of its own, which would overwrite the mutation source.
+                    Process.activate(intruder, delay = FAR)
+                }
+            }
+            Process.activate(Starter(x, motion))
+        }
+
+        val failure = assertFailure { sim.run(END_TIME) }
+            .isInstanceOf<IntegrationRetryLimitException>()
+        failure.transform { it.retries }.isEqualTo(LIMIT + 1)
+        failure.transform { it.source }.isSameInstanceAs(motion.pingers.last())
+        assertThat(sourceAtDiagnostic).isNotNull().isSameInstanceAs(motion.pingers.last())
     }
 
     @Test

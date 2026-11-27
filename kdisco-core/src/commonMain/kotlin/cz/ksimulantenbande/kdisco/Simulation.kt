@@ -60,7 +60,8 @@ class Simulation internal constructor() {
     /**
      * How many times in a row continuous integration may restart for one event boundary before
      * [run] fails with [IntegrationRetryLimitException]. Exactly this many retries are allowed; the
-     * next one throws. Must be > 0. Defaults to 10 000. See [run].
+     * next one throws. Must be in `1 until Int.MAX_VALUE`, so the failing retry can still be
+     * counted. Defaults to 10 000. See [run].
      *
      * Both kinds of [IntegrationRestartKind] count. An [IntegrationRestartKind.NOTICE_RELEASE] retry
      * keeps the accepted step end, so the clock advances between such retries: a model whose wait
@@ -69,15 +70,17 @@ class Simulation internal constructor() {
      */
     var integrationRetryLimit: Int = DEFAULT_INTEGRATION_RETRY_LIMIT
         set(value) {
-            require(value > 0) { "integrationRetryLimit must be positive, got $value" }
+            require(value in 1 until Int.MAX_VALUE) {
+                "integrationRetryLimit must be in 1 until Int.MAX_VALUE, got $value"
+            }
             field = value
         }
 
     /**
      * Consecutive integration restarts for one event boundary at which [run] emits
      * [SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed], once per boundary. Must be > 0.
-     * Defaults to 100. See [run]. A threshold above [integrationRetryLimit] never fires: the run
-     * fails before the count reaches it.
+     * Defaults to 100. See [run]. A threshold of `integrationRetryLimit + 1` fires on the same retry
+     * that fails the run; a higher one never fires: the run fails before the count reaches it.
      */
     var integrationRetryWarnThreshold: Int = DEFAULT_INTEGRATION_RETRY_WARN_THRESHOLD
         set(value) {
@@ -148,6 +151,12 @@ class Simulation internal constructor() {
      * scope cancelled, event queue cleared). That is an engine failure, not a process failure: it
      * does not go through [onProcessFailure]. The count restarts at zero for every boundary.
      *
+     * A stop requested while integration is being retried — by [stop] from an [onEvent] listener
+     * reacting to the diagnostic, or by a process failure under [stopOnProcessFailure] released
+     * inside the step — is honoured after the retry is counted: the run ends normally there, with
+     * no further integration and no event processed. A stop requested during a step that is not
+     * retried takes effect, as always, at the top of the next event-loop iteration.
+     *
      * @throws ProcessFailureException if [stopOnProcessFailure] is set and a process failed.
      * @throws IntegrationRetryLimitException if integration restarted more than
      *   [integrationRetryLimit] times in a row for one event boundary.
@@ -183,7 +192,7 @@ class Simulation internal constructor() {
             // Dispatchers.Unconfined guarantees: launch{} and resumeWith() both run the
             // process synchronously on this thread until the process suspends
             // (hold/passivate) or terminates, then control returns here for the next event.
-            while (!context.stopRequested) {
+            scheduler@ while (!context.stopRequested) {
                 currentCoroutineContext().ensureActive()
                 beforeEvent?.invoke()
 
@@ -210,6 +219,9 @@ class Simulation internal constructor() {
                     while (context.monitor.integrateUntil(integrationBoundary(next, endTime))) {
                         currentCoroutineContext().ensureActive()
                         countIntegrationRetry(++retries)
+                        // The diagnostic's listener, or a failure under stopOnProcessFailure, may
+                        // have asked to stop: retrying on would ignore it until the limit.
+                        if (context.stopRequested) break@scheduler
                         next = context.eventQueue.peek()
                     }
                 }
@@ -390,23 +402,17 @@ class Simulation internal constructor() {
      * [integrationRetryLimit].
      */
     private fun countIntegrationRetry(retries: Int) {
+        // Captured before the diagnostic: a listener queueing a turn of its own would otherwise
+        // overwrite the source the exception names.
+        val source = context.eventQueue.lastMutationSource
+        val kind = context.monitor.lastRestartKind
         if (retries == integrationRetryWarnThreshold) {
             context.emit {
-                SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed(
-                    context.currentTime,
-                    context.eventQueue.lastMutationSource,
-                    retries,
-                    context.monitor.lastRestartKind,
-                )
+                SimulationEvent.Diagnostic.IntegrationRetryThresholdCrossed(context.currentTime, source, retries, kind)
             }
         }
         if (retries > integrationRetryLimit) {
-            throw IntegrationRetryLimitException(
-                context.currentTime,
-                retries,
-                context.monitor.lastRestartKind,
-                context.eventQueue.lastMutationSource,
-            )
+            throw IntegrationRetryLimitException(context.currentTime, retries, kind, source)
         }
     }
 
@@ -515,7 +521,10 @@ class Simulation internal constructor() {
         context.waitNotices.size + context.crossingNotices.size +
         (if (context.currentProcess != null) 1 else 0)
 
-    /** Requests the simulation to stop after the current event. */
+    /**
+     * Requests the simulation to stop after the current event. Called while continuous integration
+     * is being retried (see [run]), the run ends after the current retry instead.
+     */
     fun stop() {
         context.stopRequested = true
     }
