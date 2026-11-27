@@ -48,16 +48,16 @@ import kotlinx.coroutines.withContext
  *
  * **When [stop] takes effect.** The flag is read at the top of each event-loop iteration, before
  * the `beforeEvent` hook, and after each counted integration retry (see [run]); an iteration that
- * has started processes at most one event. A run
- * paused in [SimulationController.beforeEvent] therefore does not end on [stop]: it ends only after
- * the controller is resumed ([SimulationController.resume] or [SimulationController.step]) and the
- * paused iteration has processed at most one event, or when the coroutine that runs [run] is
- * cancelled. [run] clears the flag when it starts, so a [stop] issued before [run] begins is lost.
+ * has started processes at most one event. A run paused in [SimulationController.beforeEvent]
+ * therefore does not end on [stop]: it ends only after the controller is resumed
+ * ([SimulationController.resume] or [SimulationController.step]) and the paused iteration has
+ * processed at most one event, or when the coroutine that runs [run] is cancelled. [run] clears the
+ * flag when it starts, so a [stop] issued before [run] begins is lost.
  *
  * **Stopping reliably from another thread.** To stop from another thread regardless of whether
  * [run] has started, set your own `@Volatile` flag and call [stop] from the `beforeEvent` hook of
- * [run] when it is set — the run then processes that iteration's event and ends — or cancel the
- * coroutine that runs [run].
+ * [run] when it is set — the run then processes at most that iteration's event and ends — or
+ * cancel the coroutine that runs [run].
  *
  * **What [stop] cannot interrupt.** [stop] does not interrupt a single integration step in
  * progress; inside the integration retry loop (see [IntegrationRestartKind]) it is honoured after
@@ -596,8 +596,8 @@ class Simulation internal constructor() {
      *
      * [run] clears the request when it starts. To stop reliably from another thread regardless of
      * whether [run] has started, set your own `@Volatile` flag and call [stop] from the
-     * `beforeEvent` hook of [run] when it is set (the run then processes that iteration's event and
-     * ends), or cancel the coroutine that runs [run].
+     * `beforeEvent` hook of [run] when it is set (the run then processes at most that iteration's
+     * event and ends), or cancel the coroutine that runs [run].
      */
     fun stop() {
         context.stopRequested = true
