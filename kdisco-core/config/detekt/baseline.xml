@@ -5,7 +5,7 @@
     <ID>CyclomaticComplexMethod:BouncingBallsTest.kt$BouncingBallsTest$@Test fun bouncingBallsStayWithinBoundsAfterCollisions()</ID>
     <ID>CyclomaticComplexMethod:RKF45.kt$RKF45Integrator$override fun integrate( monitor: ContinuousMonitor, context: SimulationContext, dtNow: Double, targetTime: Double ): Double</ID>
     <ID>CyclomaticComplexMethod:Resource.kt$Resource$fun release(amount: Int = 1)</ID>
-    <ID>CyclomaticComplexMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>
+    <ID>CyclomaticComplexMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): RunEnd</ID>
     <ID>EmptyFunctionBlock:ContinuousTest.kt$ContinuousTest.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:EventQueueTest.kt$EventQueueTest.TestProcess${}</ID>
     <ID>InvalidPackageDeclaration:Euler.kt$package cz.ksimulantenbande.kdisco</ID>
@@ -13,7 +13,7 @@
     <ID>InvalidPackageDeclaration:RKF45.kt$package cz.ksimulantenbande.kdisco</ID>
     <ID>LongMethod:PortableMath.kt$PortableMath$fun ln(x: Double): Double</ID>
     <ID>LongMethod:RKF45.kt$RKF45Integrator$override fun integrate( monitor: ContinuousMonitor, context: SimulationContext, dtNow: Double, targetTime: Double ): Double</ID>
-    <ID>LongMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>
+    <ID>LongMethod:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): RunEnd</ID>
     <ID>LoopWithTooManyJumpStatements:Monitor.kt$ContinuousMonitor$while</ID>
     <ID>LoopWithTooManyJumpStatements:Resource.kt$Resource$while</ID>
     <ID>LoopWithTooManyJumpStatements:Simulation.kt$Simulation$while</ID>
@@ -64,7 +64,7 @@
     <ID>MaxLineLength:TickSchedulingBenchmark.kt$TickSchedulingBenchmark.Result$"$label: ticks=$ticks wall=${(wallNs / 1_000_000.0).fmt()}ms ns/tick=${nsPerTick.fmt()} ticks/s=${ticksPerSecond.fmt()}"</ID>
     <ID>MaxLineLength:Variable.kt$Variable$// Mirrors jDisco: firstVar = pred = suc (sets pred=suc as a tmp value for subsequent suc.pred assignment)</ID>
     <ID>MaxLineLength:Variable.kt$Variable$_pred = _suc</ID>
-    <ID>NestedBlockDepth:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): Boolean</ID>
+    <ID>NestedBlockDepth:Simulation.kt$Simulation$suspend fun run(endTime: Double, beforeEvent: (suspend () -&gt; Unit)? = null): RunEnd</ID>
     <ID>ReturnCount:PortableMath.kt$PortableMath$fun exp(x: Double): Double</ID>
     <ID>ReturnCount:PortableMath.kt$PortableMath$fun ln(x: Double): Double</ID>
     <ID>SafeCast:Head.kt$Head$if (p is Link) p else null</ID>

@@ -114,8 +114,14 @@ class Simulation internal constructor() {
      *   before the next event is processed. Can be used to implement pause, throttle,
      *   or step-mode control. Called with the simulation clock at the time of the
      *   *previously* processed event (i.e. before the clock advances to the next event).
+     * @return how the run ended — see [RunEnd]: [RunEnd.STOPPED] when [stop] was called (from any
+     *   source, even if the queue drained or [endTime] was reached on the same pass);
+     *   [RunEnd.END_TIME_REACHED] when the clock reached [endTime], whether the next event lies
+     *   beyond it or integration ran up to it (the normal end of a run); [RunEnd.QUEUE_DRAINED]
+     *   when nothing was left to process and the clock is short of [endTime]. The failures are not
+     *   return values; they throw (see above).
      */
-    suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null): Boolean {
+    suspend fun run(endTime: Double, beforeEvent: (suspend () -> Unit)? = null): RunEnd {
         check(!_hasRun) { "Simulation has already run; create a new Simulation instance" }
         _hasRun = true
         require(endTime >= 0.0) { "End time must be non-negative, got $endTime" }
@@ -130,6 +136,9 @@ class Simulation internal constructor() {
         val simJob = SupervisorJob()
         val simScope = CoroutineScope(Dispatchers.Unconfined + simJob)
 
+        // A loop exit not otherwise classified below — the defensive removeFirst() fallback —
+        // counts as a drained queue.
+        var runEnd = RunEnd.QUEUE_DRAINED
         try {
             // Move pending activations into the event queue
             val activations = context.pendingActivations.toList()
@@ -173,6 +182,10 @@ class Simulation internal constructor() {
                 // loop back to process them; otherwise we are truly done.
                 if (next == null) {
                     if (!context.eventQueue.isEmpty()) continue
+                    // Judged by the clock: only a queue that drains short of endTime ran out of
+                    // work. Reaching endTime — by a last event exactly there, or by integrating a
+                    // continuous process up to it — is the normal end of a run.
+                    runEnd = if (context.currentTime >= endTime) RunEnd.END_TIME_REACHED else RunEnd.QUEUE_DRAINED
                     break
                 }
 
@@ -183,6 +196,7 @@ class Simulation internal constructor() {
                     // ones still queued behind it — holding a turn the run will never deliver —
                     // and the cleanup below only sees what is in the queue.
                     context.eventQueue.schedule(event.process, event.time)
+                    runEnd = RunEnd.END_TIME_REACHED
                     break
                 }
 
@@ -218,6 +232,10 @@ class Simulation internal constructor() {
                 context.checkWaitNotices()
                 context.checkLevelCrossings()
             }
+            // A stop request wins over whichever exit the loop took: stop() counts the same from a
+            // process, a listener, the beforeEvent hook or code run during integration, even when
+            // the queue drained or the horizon was reached on that same pass.
+            if (context.stopRequested) runEnd = RunEnd.STOPPED
         } finally {
             context.isRunning = false
             context.currentProcess = null
@@ -250,7 +268,7 @@ class Simulation internal constructor() {
             currentCoroutineContext().ensureActive()
             throw it
         }
-        return true
+        return runEnd
     }
 
     /** Body of a process coroutine: runs [Process.actions] and handles how it ends. */
@@ -342,16 +360,24 @@ class Simulation internal constructor() {
      *
      * The controller's [SimulationController.beforeEvent] hook is invoked once per
      * event-loop iteration before the next event is processed.
+     *
+     * @return how the run ended — [RunEnd.QUEUE_DRAINED], [RunEnd.END_TIME_REACHED] or
+     *   [RunEnd.STOPPED]; see [RunEnd]. Failures throw, as for the other [run] overload.
+     * @see run
      */
-    suspend fun run(endTime: Double, controller: SimulationController): Boolean =
+    suspend fun run(endTime: Double, controller: SimulationController): RunEnd =
         run(endTime) { controller.beforeEvent(this) }
 
     /**
      * Runs the simulation under an external [SimulationController].
      *
      * This is a convenience overload equivalent to [run] with a controller argument.
+     *
+     * @return how the run ended — [RunEnd.QUEUE_DRAINED], [RunEnd.END_TIME_REACHED] or
+     *   [RunEnd.STOPPED]; see [RunEnd]. Failures throw, as for [run].
+     * @see run
      */
-    suspend fun runControlled(controller: SimulationController, endTime: Double): Boolean = run(endTime, controller)
+    suspend fun runControlled(controller: SimulationController, endTime: Double): RunEnd = run(endTime, controller)
 
     /**
      * How far continuous integration may run before the next discrete event: that event's time, or

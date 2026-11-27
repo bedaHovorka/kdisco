@@ -15,7 +15,7 @@ class ProcessFailureUncaughtTest {
         val boom = IllegalStateException("nobody listens")
         val events = mutableListOf<SimulationEvent>()
         var survivorFinishedAt = -1.0
-        var completed = false
+        var completed: RunEnd? = null
         val sim = simulation {
             onEvent { if (it is SimulationEvent.ProcessFailed) events += it }
             Process.activate(object : Process() {
@@ -36,7 +36,7 @@ class ProcessFailureUncaughtTest {
         val outcome = runCatching { runTest { completed = sim.run(10.0) } }
 
         assertThat(outcome.exceptionOrNull()).isSameInstanceAs(boom)
-        assertThat(completed).isTrue()
+        assertThat(completed).isEqualTo(RunEnd.QUEUE_DRAINED)
         assertThat(events).hasSize(1)
         assertThat(survivorFinishedAt).isEqualTo(4.0)
     }
@@ -46,7 +46,7 @@ class ProcessFailureUncaughtTest {
         val boom = IllegalStateException("fatal")
         val listenerBoom = IllegalStateException("listener broke")
         var survivorFinishedAt = -1.0
-        var completed = false
+        var completed: RunEnd? = null
         val sim = simulation {
             onProcessFailure { _, _ -> throw listenerBoom }
             Process.activate(object : Process() {
@@ -67,7 +67,7 @@ class ProcessFailureUncaughtTest {
         val outcome = runCatching { runTest { completed = sim.run(10.0) } }
 
         assertThat(outcome.exceptionOrNull()).isSameInstanceAs(listenerBoom)
-        assertThat(completed).isTrue()
+        assertThat(completed).isEqualTo(RunEnd.QUEUE_DRAINED)
         assertThat(survivorFinishedAt).isEqualTo(4.0)
     }
 
@@ -75,7 +75,7 @@ class ProcessFailureUncaughtTest {
     fun releaseInCleanupOfNormallyEndedRunIsNotAProcessFailure() {
         val failures = mutableListOf<Throwable>()
         val failedEvents = mutableListOf<SimulationEvent>()
-        var completed = false
+        var completed: RunEnd? = null
         val resource = Resource()
         val sim = simulation {
             stopOnProcessFailure = true
@@ -98,7 +98,7 @@ class ProcessFailureUncaughtTest {
         // uncaught-exception handler exactly as it did before failures were reported.
         val outcome = runCatching { runTest { completed = sim.run(10.0) } }
 
-        assertThat(completed).isTrue()
+        assertThat(completed).isEqualTo(RunEnd.END_TIME_REACHED)
         assertThat(outcome.exceptionOrNull()).isNotNull().isInstanceOf(DiscoException::class)
         assertThat(failures).isEmpty()
         assertThat(failedEvents).isEmpty()
@@ -144,7 +144,7 @@ class ProcessFailureUncaughtTest {
     fun teardownFailureWithoutStopOnProcessFailureSkipsListeners() {
         val late = IllegalStateException("late")
         val seen = mutableListOf<Throwable>()
-        var completed = false
+        var completed: RunEnd? = null
         val sim = simulation {
             onProcessFailure { _, failure -> seen += failure }
             Process.activate(object : Process() {
@@ -159,7 +159,7 @@ class ProcessFailureUncaughtTest {
         }
         val outcome = runCatching { runTest { completed = sim.run(5.0) } }
 
-        assertThat(completed).isTrue()
+        assertThat(completed).isEqualTo(RunEnd.QUEUE_DRAINED)
         assertThat(seen).isEmpty()
         assertThat(outcome.exceptionOrNull()).isSameInstanceAs(late)
     }
@@ -171,7 +171,7 @@ class ProcessFailureUncaughtTest {
         val secondBoom = IllegalStateException("second callback broke")
         val calls = mutableListOf<String>()
         var survivorFinishedAt = -1.0
-        var completed = false
+        var completed: RunEnd? = null
         val sim = simulation {
             onProcessFailure { _, _ ->
                 calls += "first"
@@ -201,7 +201,7 @@ class ProcessFailureUncaughtTest {
         assertThat(calls).containsExactly("first", "second")
         assertThat(outcome.exceptionOrNull()).isSameInstanceAs(firstBoom)
         assertThat(firstBoom.suppressedExceptions).containsExactly(secondBoom)
-        assertThat(completed).isTrue()
+        assertThat(completed).isEqualTo(RunEnd.QUEUE_DRAINED)
         assertThat(survivorFinishedAt).isEqualTo(4.0)
     }
 
@@ -210,7 +210,7 @@ class ProcessFailureUncaughtTest {
         val boom = IllegalStateException("fatal")
         val listenerBoom = IllegalStateException("event listener broke")
         val seen = mutableListOf<Throwable>()
-        var completed = false
+        var completed: RunEnd? = null
         val sim = simulation {
             onEvent { if (it is SimulationEvent.ProcessFailed) throw listenerBoom }
             onProcessFailure { _, failure -> seen += failure }
@@ -226,6 +226,6 @@ class ProcessFailureUncaughtTest {
         assertThat(seen).containsExactly(boom)
         assertThat(outcome.exceptionOrNull()).isSameInstanceAs(listenerBoom)
         assertThat(listenerBoom.suppressedExceptions).isEmpty()
-        assertThat(completed).isTrue()
+        assertThat(completed).isEqualTo(RunEnd.QUEUE_DRAINED)
     }
 }
