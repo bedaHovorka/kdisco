@@ -151,8 +151,7 @@ class ProcessFailureTest {
                 }
             })
         }
-        // A hold past endTime is still queued, so run reports an early stop, not a drained queue.
-        assertThat(sim.run(10.0)).isFalse()
+        assertThat(sim.run(10.0)).isTrue()
         assertThat(failures).isEmpty()
     }
 

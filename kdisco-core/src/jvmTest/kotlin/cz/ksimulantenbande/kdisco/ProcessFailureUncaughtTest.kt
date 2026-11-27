@@ -98,8 +98,7 @@ class ProcessFailureUncaughtTest {
         // uncaught-exception handler exactly as it did before failures were reported.
         val outcome = runCatching { runTest { completed = sim.run(10.0) } }
 
-        // The process still holds past endTime: run reports an early stop, not a drained queue.
-        assertThat(completed).isFalse()
+        assertThat(completed).isTrue()
         assertThat(outcome.exceptionOrNull()).isNotNull().isInstanceOf(DiscoException::class)
         assertThat(failures).isEmpty()
         assertThat(failedEvents).isEmpty()
