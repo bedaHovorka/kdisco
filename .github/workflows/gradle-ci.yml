@@ -38,6 +38,17 @@ jobs:
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # A failing or timed-out test leaves its coroutine/thread dump only in captured stderr,
+      # which Gradle keeps in the test reports and results — keep them past the runner.
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
+          retention-days: 14
       - uses: actions/upload-artifact@v4
         with:
           name: kdisco-artifacts
