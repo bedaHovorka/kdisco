@@ -11,7 +11,7 @@
         <error line="75" column="118" source="standard:argument-list-wrapping" />
         <error line="75" column="121" source="standard:argument-list-wrapping" />
         <error line="75" column="121" source="standard:max-line-length" />
-        <error line="136" column="50" source="standard:function-signature" />
+        <error line="141" column="50" source="standard:function-signature" />
     </file>
     <file name="src/commonMain/kotlin/cz/ksimulantenbande/kdisco/Continuous.kt">
         <error line="33" column="18" source="standard:backing-property-naming" />

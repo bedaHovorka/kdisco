@@ -80,6 +80,11 @@ kotlin {
             dependencies {
                 implementation(kotlin("test-junit5"))
                 implementation("org.junit.jupiter:junit-jupiter:${project.property("junit.version")}")
+                // DebugProbes: coroutine dump when a test fails by timeout (kdisco#86)
+                implementation(
+                    "org.jetbrains.kotlinx:kotlinx-coroutines-debug:" +
+                        project.property("coroutines.version"),
+                )
             }
         }
     }
